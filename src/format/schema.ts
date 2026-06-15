@@ -17,6 +17,16 @@ export const KnownIssueSchema = z.object({ ts: z.string(), issue: z.string(), se
 export const RunSchema = z.object({
   id: z.string(), phase: z.number().int().positive(), promptHash: z.string(),
   changedFiles: z.array(z.string()), diffStat: z.string(), testsPassed: z.boolean(), failures: z.array(z.string()),
+  baseHead: z.string().nullable().default(null),
+  postHead: z.string().nullable().default(null),
+  verifierPassed: z.boolean().default(false),
+  verifierFailures: z.array(z.string()).default([]),
+  executorClaims: z.object({
+    changedFiles: z.array(z.string()),
+    testsPassed: z.boolean().optional(),
+    diffStat: z.string().optional(),
+    failures: z.array(z.string()),
+  }).optional(),
 });
 
 export type State = z.infer<typeof StateSchema>;

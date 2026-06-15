@@ -4,7 +4,8 @@ import type { SpawnFn, SpawnResult } from "./codex.js";
 
 const realSpawn: SpawnFn = (req) =>
   new Promise<SpawnResult>((resolve, reject) => {
-    const child = spawn("claude", ["-p", "--output-format", "json", "--permission-mode", "bypassPermissions", req.prompt], { cwd: req.root, timeout: 1_800_000 });
+    // SECURITY: no bypassPermissions by default; sandbox/allowed-tools is Phase 6.
+    const child = spawn("claude", ["-p", "--output-format", "json", req.prompt], { cwd: req.root, timeout: 1_800_000 });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d.toString()));

@@ -11,7 +11,13 @@ function latestRunForPhase(root: string, phase: number): Run | null {
     .filter((f) => f.endsWith(".json"))
     .map((f) => { try { return RunSchema.parse(JSON.parse(readFileSync(filePath(root, `runs/${f}`), "utf8"))); } catch { return null; } })
     .filter((r): r is Run => r !== null && r.phase === phase);
-  return runs.length ? runs[runs.length - 1] : null;
+  runs.sort((a, b) => runIndex(b.id) - runIndex(a.id));
+  return runs.length ? runs[0] : null;
+}
+
+function runIndex(id: string): number {
+  const match = id.match(/-r(\d+)$/);
+  return match ? Number(match[1]) : -1;
 }
 
 function latestReview(root: string, phase: number): string | null {
@@ -29,7 +35,12 @@ export function buildContextPack(root: string, phaseId: number, maxTokens: numbe
   const phase = readMarkdown(root, `phases/${String(phaseId).padStart(2, "0")}.md`);
   if (phase) sections.push({ label: `PHASE ${phaseId}`, priority: 90, mandatory: true, text: phase });
   const run = latestRunForPhase(root, phaseId);
-  if (run) sections.push({ label: "RUN EVIDENCE", priority: 85, mandatory: true, text: `tests: ${run.testsPassed ? "pass" : "fail"}\nchanged: ${run.changedFiles.join(", ")}\ndiffstat: ${run.diffStat}\nfailures:\n${run.failures.map((f) => `- ${f}`).join("\n")}` });
+  if (run) sections.push({
+    label: "RUN EVIDENCE",
+    priority: 85,
+    mandatory: true,
+    text: `verified: ${run.verifierPassed ? "PASS" : "FAIL"}\nchanged (git): ${run.changedFiles.join(", ")}\ndiffstat (git): ${run.diffStat}\nverifier failures:\n${run.verifierFailures.map((f) => `- ${f}`).join("\n")}\n--- executor claims (UNTRUSTED, do not rely on) ---\nclaimed tests: ${run.executorClaims?.testsPassed ?? "n/a"}\nclaimed changed: ${(run.executorClaims?.changedFiles ?? []).join(", ")}`,
+  });
   const arch = readMarkdown(root, "architecture.md");
   if (arch) sections.push({ label: "ARCHITECTURE", priority: 80, text: arch });
   const decisions = readNdjson(root, "decisions.ndjson") as { title: string; why: string }[];

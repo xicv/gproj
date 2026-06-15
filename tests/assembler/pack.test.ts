@@ -27,7 +27,7 @@ describe("buildContextPack", () => {
     expect(pack).toContain("Build X");          // goal is highest priority, kept
     expect(pack).not.toContain("zzzz");          // huge low-priority issue dropped
   });
-  it("includes executor run evidence for the phase", () => {
+  it("renders verified run evidence before untrusted executor claims", () => {
     mkdirSync(join(root, ".gproj", "runs"), { recursive: true });
     writeFileSync(join(root, ".gproj", "runs", "p1-r1.json"), JSON.stringify({
       id: "p1-r1",
@@ -37,10 +37,52 @@ describe("buildContextPack", () => {
       diffStat: "1 file changed",
       testsPassed: false,
       failures: ["boom"],
+      verifierPassed: false,
+      verifierFailures: ["verified boom"],
+      executorClaims: {
+        changedFiles: ["claimed.ts"],
+        testsPassed: true,
+        diffStat: "claimed stat",
+        failures: [],
+      },
     }));
 
     const pack = buildContextPack(root, 1, 4000);
     expect(pack).toContain("RUN EVIDENCE");
-    expect(pack).toContain("boom");
+    expect(pack).toContain("verified: FAIL");
+    expect(pack).toContain("verified boom");
+    expect(pack).toContain("UNTRUSTED");
+    expect(pack).toContain("claimed tests: true");
+  });
+
+  it("uses the highest numeric run id for the latest run in a phase", () => {
+    mkdirSync(join(root, ".gproj", "runs"), { recursive: true });
+    writeFileSync(join(root, ".gproj", "runs", "p1-r1.json"), JSON.stringify({
+      id: "p1-r1",
+      phase: 1,
+      promptHash: "hash",
+      changedFiles: ["old.ts"],
+      diffStat: "old stat",
+      testsPassed: true,
+      failures: [],
+      verifierPassed: true,
+      verifierFailures: [],
+    }));
+    writeFileSync(join(root, ".gproj", "runs", "p1-r10.json"), JSON.stringify({
+      id: "p1-r10",
+      phase: 1,
+      promptHash: "hash",
+      changedFiles: ["new.ts"],
+      diffStat: "new stat",
+      testsPassed: false,
+      failures: ["new failure"],
+      verifierPassed: false,
+      verifierFailures: ["new verified failure"],
+    }));
+
+    const pack = buildContextPack(root, 1, 4000);
+    expect(pack).toContain("verified: FAIL");
+    expect(pack).toContain("new.ts");
+    expect(pack).not.toContain("old.ts");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync, unlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../src/commands/init.js";
@@ -9,7 +9,7 @@ import { runReview } from "../../src/commands/review.js";
 import { runDecide } from "../../src/commands/decide.js";
 import { readState } from "../../src/format/store.js";
 import { existsSync } from "node:fs";
-import { runPath } from "../../src/format/paths.js";
+import { filePath, runPath } from "../../src/format/paths.js";
 
 let root: string;
 beforeEach(async () => { root = mkdtempSync(join(tmpdir(), "gproj-")); runInit(root, "Build X"); await runPackage(root, { plannerName: "stub", maxTokens: 4000 }); });
@@ -19,6 +19,38 @@ describe("exec", () => {
     const runId = await runExec(root, { executorName: "stub" });
     expect(existsSync(runPath(root, runId))).toBe(true);
     expect(readState(root)?.status).toBe("reviewing");
+  });
+
+  it("persists failing verifier evidence even when the executor claims tests passed", async () => {
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({ testCommand: ["node", "-e", "process.exit(1)"] }));
+
+    const runId = await runExec(root, { executorName: "stub" });
+    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+
+    expect(run.testsPassed).toBe(false);
+    expect(run.verifierPassed).toBe(false);
+    expect(run.verifierFailures.length).toBeGreaterThan(0);
+    expect(run.executorClaims.testsPassed).toBe(true);
+  });
+
+  it("persists passing verifier evidence", async () => {
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({ testCommand: ["node", "-e", ""] }));
+
+    const runId = await runExec(root, { executorName: "stub" });
+    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+
+    expect(run.testsPassed).toBe(true);
+    expect(run.verifierPassed).toBe(true);
+    expect(run.verifierFailures).toEqual([]);
+  });
+
+  it("fails closed as unverified when no verifier config exists", async () => {
+    const runId = await runExec(root, { executorName: "stub" });
+    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+
+    expect(run.testsPassed).toBe(false);
+    expect(run.verifierPassed).toBe(false);
+    expect(run.verifierFailures.join("\n")).toContain("unverified");
   });
 
   it("throws when there is no packaged phase to execute", async () => {
