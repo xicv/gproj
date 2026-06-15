@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readState, writeState, appendNdjson, readNdjson, writeMarkdown, readMarkdown } from "../../src/format/store.js";
+import { atomicWrite, readState, writeState, appendNdjson, readNdjson, writeMarkdown, readMarkdown } from "../../src/format/store.js";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
@@ -23,5 +23,16 @@ describe("store", () => {
   });
   it("returns null state when absent", () => {
     expect(readState(root)).toBeNull();
+  });
+  it("atomicWrite leaves no temp files behind after success", () => {
+    const p = join(root, "state.json");
+    atomicWrite(p, "ok");
+    expect(readdirSync(root).filter((name) => name.startsWith("state.json.tmp-"))).toEqual([]);
+  });
+  it("atomicWrite fully replaces existing content", () => {
+    const p = join(root, "state.json");
+    atomicWrite(p, "longer content");
+    atomicWrite(p, "short");
+    expect(readFileSync(p, "utf8")).toBe("short");
   });
 });
