@@ -1,6 +1,6 @@
 import { readState } from "../format/store.js";
 
-const NEXT: Record<string, string> = {
+export const NEXT: Record<string, string> = {
   init: "run `gproj package` to plan phase 1",
   planning: "run `gproj package` to emit the phase packet",
   packaged: "run `gproj exec` to execute the phase",

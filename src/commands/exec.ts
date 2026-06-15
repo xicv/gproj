@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { getExecutorTarget } from "../backends/executor.js";
 import { loadConfig } from "../config/projectConfig.js";
+import { appendJournal } from "../format/journal.js";
 import { readState, writeState, readMarkdown } from "../format/store.js";
 import { filePath } from "../format/paths.js";
 import { captureHead, gitEvidence } from "../verifier/git.js";
@@ -27,6 +28,7 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     throw new Error(`no packaged phase to execute; run \`gproj package\` first (status: ${state.status})`);
   }
   const phase = state.currentPhase;
+  appendJournal(root, { phase, event: "exec_start", status: state.status });
   const prompt = readMarkdown(root, `packages/${String(phase).padStart(2, "0")}-exec-prompt.md`);
   if (!prompt) throw new Error(`no exec prompt for phase ${phase}; run \`gproj package\` first`);
   const target = getExecutorTarget(opts.executorName);
@@ -56,5 +58,6 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     },
   });
   writeState(root, { ...state, status: "reviewing" });
+  appendJournal(root, { phase, event: "exec_done", status: "reviewing", runId: id });
   return id;
 }

@@ -38,6 +38,21 @@ export async function runCli(
     case "status":
       io.log(renderStatus(root));
       break;
+    case "doctor": {
+      const { renderDoctor } = await import("./commands/doctor.js");
+      io.log(renderDoctor(root));
+      break;
+    }
+    case "recover": {
+      const { runRecover } = await import("./commands/recover.js");
+      const summary = await runRecover(root);
+      io.log([
+        `interrupted: ${summary.interrupted}`,
+        `actions: ${summary.actions.length ? summary.actions.join(", ") : "none"}`,
+        `recommendation: ${summary.recommendation}`,
+      ].join("\n"));
+      break;
+    }
     case "package": {
       const { runPackage } = await import("./commands/package.js");
       io.log(await withLock(root, "package", async () => {
@@ -86,7 +101,7 @@ export async function runCli(
       break;
     }
     default:
-      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, package, exec, review, decide, advance`);
+      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance`);
       throw new CliExit(2);
   }
 }

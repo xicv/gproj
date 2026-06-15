@@ -24,4 +24,28 @@ describe("cli", () => {
     await runCli(root, ["status"], { log: (line) => lines.push(line), error: () => undefined });
     expect(lines.join("\n")).toContain("status");
   });
+
+  it("does not lock doctor", async () => {
+    runInit(root, "Build X");
+    writeFileSync(join(root, ".gproj", ".lock"), JSON.stringify({ pid: process.pid, label: "other", ts: Date.now() }));
+
+    const lines: string[] = [];
+    await runCli(root, ["doctor"], { log: (line) => lines.push(line), error: () => undefined });
+    expect(lines.join("\n")).toContain("status");
+  });
+
+  it("runs recover through the command's own lock", async () => {
+    runInit(root, "Build X");
+
+    const lines: string[] = [];
+    await runCli(root, ["recover"], { log: (line) => lines.push(line), error: () => undefined });
+    expect(lines.join("\n")).toContain("interrupted: false");
+  });
+
+  it("includes recover and doctor in unknown-command help", async () => {
+    const errors: string[] = [];
+    await expect(runCli(root, ["bogus"], { log: () => undefined, error: (line) => errors.push(line) })).rejects.toThrow("cli exit");
+    expect(errors.join("\n")).toContain("recover");
+    expect(errors.join("\n")).toContain("doctor");
+  });
 });

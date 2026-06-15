@@ -1,5 +1,6 @@
 import { buildContextPack } from "../assembler/pack.js";
 import { getPlannerBackend } from "../backends/planner.js";
+import { appendJournal } from "../format/journal.js";
 import { readState, writeState, writeMarkdown } from "../format/store.js";
 
 export interface PackageOpts { plannerName: string; maxTokens: number; }
@@ -11,6 +12,7 @@ export async function runPackage(root: string, opts: PackageOpts): Promise<void>
     throw new Error(`cannot package from status ${state.status}`);
   }
   const phase = state.currentPhase;
+  appendJournal(root, { phase, event: "package_start", status: state.status });
   const pack = buildContextPack(root, phase, opts.maxTokens);
   const planner = getPlannerBackend(opts.plannerName);
   const plan = await planner.ask({ pack, instruction: `Produce a phase ${phase} plan: goal, in-scope, out-of-scope, acceptance, tests, risk.`, mode: "plan" });
@@ -21,4 +23,5 @@ export async function runPackage(root: string, opts: PackageOpts): Promise<void>
     ? state.phases
     : [...state.phases, { id: phase, title: `phase ${phase}`, status: "planned" as const }];
   writeState(root, { ...state, phases, status: "packaged" });
+  appendJournal(root, { phase, event: "package_done", status: "packaged" });
 }

@@ -8,6 +8,7 @@ import { runExec } from "../../src/commands/exec.js";
 import { runReview } from "../../src/commands/review.js";
 import { runDecide } from "../../src/commands/decide.js";
 import { readNdjson, readState } from "../../src/format/store.js";
+import { readJournal } from "../../src/format/journal.js";
 
 let root: string;
 beforeEach(async () => {
@@ -21,6 +22,11 @@ describe("review + decide", () => {
   it("review writes a verdict and sets status deciding", async () => {
     await runReview(root, { plannerName: "stub", maxTokens: 4000 });
     expect(readState(root)?.status).toBe("deciding");
+  });
+  it("review journals start and done", async () => {
+    await runReview(root, { plannerName: "stub", maxTokens: 4000 });
+    const reviewEvents = readJournal(root).filter((entry) => entry.event.startsWith("review_"));
+    expect(reviewEvents.map((entry) => entry.event)).toEqual(["review_start", "review_done"]);
   });
   it("review throws when there is no completed execution to review", async () => {
     const freshRoot = mkdtempSync(join(tmpdir(), "gproj-"));
@@ -41,6 +47,12 @@ describe("review + decide", () => {
     expect(readNdjson(root, "decisions.ndjson").some((d) => {
       return typeof d === "object" && d !== null && "title" in d && String(d.title).includes("decision: accept");
     })).toBe(true);
+  });
+  it("journals the human decision", async () => {
+    await runReview(root, { plannerName: "stub", maxTokens: 4000 });
+    runDecide(root, "adjust");
+    const decision = readJournal(root).findLast((entry) => entry.event === "decide");
+    expect(decision?.detail).toBe("adjust");
   });
   it("reject returns to planning on the same phase", async () => {
     await runReview(root, { plannerName: "stub", maxTokens: 4000 });

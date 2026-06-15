@@ -1,44 +1,12 @@
-import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
-interface LockHolder {
-  pid: number;
-  label: string;
-  ts: number;
-  token: string;
-}
+import { isLockStale, isPidDead, lockPath, readHolder, type LockHolder } from "./inspect.js";
 
 const defaultStaleMs = 120_000;
 let counter = 0;
 
-const lockPath = (root: string) => join(root, ".gproj", ".lock");
-
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
-}
-
-function isPidDead(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (error) {
-    return isNodeError(error) && error.code === "ESRCH";
-  }
-}
-
-function readHolder(path: string): LockHolder | null {
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<LockHolder>;
-    if (
-      typeof parsed.pid !== "number" ||
-      typeof parsed.label !== "string" ||
-      typeof parsed.ts !== "number" ||
-      typeof parsed.token !== "string"
-    ) return null;
-    return { pid: parsed.pid, label: parsed.label, ts: parsed.ts, token: parsed.token };
-  } catch {
-    return null;
-  }
 }
 
 function createHolder(label: string): LockHolder {
@@ -66,22 +34,21 @@ function tryCreate(path: string, holder: LockHolder): boolean {
   }
 }
 
-function acquire(path: string, holder: LockHolder, staleMs: number): void {
+function acquire(root: string, path: string, holder: LockHolder, staleMs: number): void {
   if (tryCreate(path, holder)) return;
 
-  const current = readHolder(path);
-  let mtimeMs: number;
+  const current = readHolder(root);
+  let isStale: boolean;
   try {
-    mtimeMs = statSync(path).mtimeMs;
+    isStale = isLockStale(root, staleMs);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
       if (tryCreate(path, holder)) return;
-      throw busyError(readHolder(path));
+      throw busyError(readHolder(root));
     }
     throw error;
   }
 
-  const isStale = Date.now() - mtimeMs > staleMs;
   const isDead = current ? isPidDead(current.pid) : false;
 
   if (!isStale && !isDead) throw busyError(current);
@@ -92,7 +59,7 @@ function acquire(path: string, holder: LockHolder, staleMs: number): void {
     if (!isNodeError(error) || error.code !== "ENOENT") throw error;
   }
 
-  if (!tryCreate(path, holder)) throw busyError(readHolder(path));
+  if (!tryCreate(path, holder)) throw busyError(readHolder(root));
 }
 
 export async function withLock<T>(
@@ -106,13 +73,13 @@ export async function withLock<T>(
   const holder = createHolder(label);
   mkdirSync(dir, { recursive: true });
 
-  acquire(path, holder, opts.staleMs ?? defaultStaleMs);
+  acquire(root, path, holder, opts.staleMs ?? defaultStaleMs);
 
   try {
     return await fn();
   } finally {
     try {
-      if (readHolder(path)?.token === holder.token) unlinkSync(path);
+      if (readHolder(root)?.token === holder.token) unlinkSync(path);
     } catch {
       // Release is best effort and must not mask errors from fn().
     }

@@ -8,6 +8,7 @@ import { runExec } from "../../src/commands/exec.js";
 import { runReview } from "../../src/commands/review.js";
 import { runDecide } from "../../src/commands/decide.js";
 import { readState } from "../../src/format/store.js";
+import { readJournal } from "../../src/format/journal.js";
 import { existsSync } from "node:fs";
 import { filePath, runPath } from "../../src/format/paths.js";
 
@@ -77,5 +78,13 @@ describe("exec", () => {
     expect(second).toBe("p1-r2");
     expect(third).toBe("p1-r3");
     expect(existsSync(runPath(root, third))).toBe(true);
+  });
+
+  it("journals exec start and done with the run id", async () => {
+    const runId = await runExec(root, { executorName: "stub" });
+    const execEvents = readJournal(root).filter((entry) => entry.event.startsWith("exec_"));
+
+    expect(execEvents.map((entry) => entry.event)).toEqual(["exec_start", "exec_done"]);
+    expect(execEvents[1]?.runId).toBe(runId);
   });
 });

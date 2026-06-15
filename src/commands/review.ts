@@ -1,5 +1,6 @@
 import { buildContextPack } from "../assembler/pack.js";
 import { getPlannerBackend } from "../backends/planner.js";
+import { appendJournal } from "../format/journal.js";
 import { readState, writeState } from "../format/store.js";
 import { existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -24,6 +25,7 @@ export async function runReview(root: string, opts: ReviewOpts): Promise<void> {
     throw new Error(`nothing to review; run \`gproj exec\` first (status: ${state.status})`);
   }
   const phase = state.currentPhase;
+  appendJournal(root, { phase, event: "review_start", status: state.status });
   const pack = buildContextPack(root, phase, opts.maxTokens);
   const planner = getPlannerBackend(opts.plannerName);
   const verdict = await planner.ask({
@@ -36,4 +38,5 @@ export async function runReview(root: string, opts: ReviewOpts): Promise<void> {
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, verdict);
   writeState(root, { ...state, status: "deciding" });
+  appendJournal(root, { phase, event: "review_done", status: "deciding" });
 }

@@ -1,3 +1,4 @@
+import { appendJournal } from "../format/journal.js";
 import { appendNdjson, readState, writeState } from "../format/store.js";
 
 export type Decision = "accept" | "adjust" | "reject";
@@ -12,6 +13,7 @@ export function runDecide(root: string, decision: Decision): void {
     throw new Error(`nothing to decide; run \`gproj review\` first (status: ${state.status})`);
   }
   appendNdjson(root, "decisions.ndjson", { ts: new Date().toISOString(), title: `phase ${state.currentPhase} decision: ${decision}`, why: `human gate: ${decision}` });
+  appendJournal(root, { phase: state.currentPhase, event: "decide", status: state.status, detail: decision });
   if (decision === "accept") {
     writeState(root, { ...state, currentPhase: state.currentPhase + 1, status: "planning" });
   } else {
