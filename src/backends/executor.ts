@@ -1,3 +1,6 @@
+import { makeCodexTarget } from "./codex.js";
+import { makeClaudeCodeTarget } from "./claudeCode.js";
+
 export interface ExecutorRun { root: string; phase: number; prompt: string; }
 export interface ExecutorResult { changedFiles: string[]; diffStat: string; testsPassed: boolean; failures: string[]; raw: string; }
 export interface ExecutorTarget { name: string; run(req: ExecutorRun): Promise<ExecutorResult>; }
@@ -8,7 +11,7 @@ const stub: ExecutorTarget = {
 };
 
 export function getExecutorTarget(name: string): ExecutorTarget {
-  const registry: Record<string, ExecutorTarget> = { stub };
+  const registry: Record<string, ExecutorTarget> = { stub, codex: makeCodexTarget(), "claude-code": makeClaudeCodeTarget() };
   const t = registry[name];
   if (!t) throw new Error(`unknown executor target: ${name}`);
   return t;
