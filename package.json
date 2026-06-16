@@ -1,5 +1,5 @@
 {
-  "name": "@xicv/gproj",
+  "name": "@nickcao/gproj",
   "version": "0.0.1",
   "description": "GPT Project persistent-planner-brain CLI",
   "type": "module",
