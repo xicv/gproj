@@ -10,6 +10,7 @@ export const StateSchema = z.object({
   currentPhase: z.number().int().positive(),
   status: z.enum(["init", "planning", "packaged", "executing", "reviewing", "deciding", "done"]),
   phases: z.array(PhaseMetaSchema),
+  activeWorktree: z.string().nullable().default(null),
 });
 
 export const DecisionSchema = z.object({ ts: z.string(), title: z.string(), why: z.string() });

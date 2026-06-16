@@ -10,8 +10,14 @@ const stub: ExecutorTarget = {
   async run() { return { changedFiles: [], diffStat: "+0 -0", testsPassed: true, failures: [], raw: "stub run" }; },
 };
 
+const extraTargets: Record<string, ExecutorTarget> = {};
+
+export function registerExecutorTarget(target: ExecutorTarget): void {
+  extraTargets[target.name] = target;
+}
+
 export function getExecutorTarget(name: string): ExecutorTarget {
-  const registry: Record<string, ExecutorTarget> = { stub, codex: makeCodexTarget(), "claude-code": makeClaudeCodeTarget() };
+  const registry: Record<string, ExecutorTarget> = { stub, codex: makeCodexTarget(), "claude-code": makeClaudeCodeTarget(), ...extraTargets };
   const t = registry[name];
   if (!t) throw new Error(`unknown executor target: ${name}`);
   return t;

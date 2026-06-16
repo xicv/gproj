@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { getExecutorTarget } from "../backends/executor.js";
 import { loadConfig } from "../config/projectConfig.js";
 import { appendJournal } from "../format/journal.js";
 import { readState, writeState, readMarkdown } from "../format/store.js";
 import { filePath } from "../format/paths.js";
+import { createWorktree } from "../sandbox/worktree.js";
 import { captureHead, gitEvidence } from "../verifier/git.js";
 import { runChecks } from "../verifier/tests.js";
 import { ingestRun } from "./ingestRun.js";
@@ -28,15 +30,30 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     throw new Error(`no packaged phase to execute; run \`gproj package\` first (status: ${state.status})`);
   }
   const phase = state.currentPhase;
-  appendJournal(root, { phase, event: "exec_start", status: state.status });
+  const cfg = loadConfig(root);
+  let executorCwd = root;
+  let activeWorktree: string | null = null;
+  let detail: string | undefined;
+  if (cfg.sandbox.mode === "worktree") {
+    const nodeModulesMissing = !existsSync(join(root, "node_modules"));
+    const worktree = createWorktree(root);
+    executorCwd = worktree.path;
+    activeWorktree = worktree.path;
+    detail = nodeModulesMissing
+      ? `worktree: ${worktree.path}; node_modules missing, symlink skipped`
+      : `worktree: ${worktree.path}`;
+    writeState(root, { ...state, activeWorktree });
+  } else {
+    writeState(root, { ...state, activeWorktree: null });
+  }
+  appendJournal(root, { phase, event: "exec_start", status: state.status, detail });
   const prompt = readMarkdown(root, `packages/${String(phase).padStart(2, "0")}-exec-prompt.md`);
   if (!prompt) throw new Error(`no exec prompt for phase ${phase}; run \`gproj package\` first`);
   const target = getExecutorTarget(opts.executorName);
-  const baseHead = captureHead(root);
-  const result = await target.run({ root, phase, prompt });
-  const cfg = loadConfig(root);
-  const git = gitEvidence(root, baseHead);
-  const verifier = runChecks(root, { testCommand: cfg.testCommand, typecheckCommand: cfg.typecheckCommand });
+  const baseHead = captureHead(executorCwd);
+  const result = await target.run({ root: executorCwd, phase, prompt });
+  const git = gitEvidence(executorCwd, baseHead);
+  const verifier = runChecks(executorCwd, { testCommand: cfg.testCommand, typecheckCommand: cfg.typecheckCommand });
   const id = `p${phase}-r${nextRunIndex(root, phase)}`;
   ingestRun(root, {
     id,
@@ -57,7 +74,7 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
       failures: result.failures,
     },
   });
-  writeState(root, { ...state, status: "reviewing" });
-  appendJournal(root, { phase, event: "exec_done", status: "reviewing", runId: id });
+  writeState(root, { ...state, status: "reviewing", activeWorktree });
+  appendJournal(root, { phase, event: "exec_done", status: "reviewing", runId: id, detail });
   return id;
 }

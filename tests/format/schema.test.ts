@@ -5,6 +5,7 @@ describe("schemas", () => {
   it("parses a valid state", () => {
     const s = StateSchema.parse({ currentPhase: 1, status: "planning", phases: [] });
     expect(s.currentPhase).toBe(1);
+    expect(s.activeWorktree).toBe(null);
   });
   it("rejects an unknown status", () => {
     expect(() => StateSchema.parse({ currentPhase: 1, status: "bogus", phases: [] })).toThrow();

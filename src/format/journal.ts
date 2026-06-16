@@ -8,6 +8,8 @@ export type JournalEvent =
   "review_start" |
   "review_done" |
   "decide" |
+  "sandbox_apply" |
+  "sandbox_discard" |
   "recover" |
   "abort";
 

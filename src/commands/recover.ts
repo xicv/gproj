@@ -1,8 +1,9 @@
 import { appendJournal, readJournal } from "../format/journal.js";
 import type { JournalEntry, JournalEvent } from "../format/journal.js";
-import { readState } from "../format/store.js";
+import { readState, writeState } from "../format/store.js";
 import { clearRecoverableLock } from "../lock/inspect.js";
 import { withLock } from "../lock/lock.js";
+import { removeWorktree } from "../sandbox/worktree.js";
 
 export interface RecoverSummary {
   interrupted: boolean;
@@ -65,6 +66,12 @@ export async function runRecover(root: string): Promise<RecoverSummary> {
         detail: interrupted.op,
       });
       actions.push(`recorded abort for ${interrupted.op}`);
+    }
+
+    if (state.activeWorktree && interrupted?.op === "exec") {
+      removeWorktree(root, state.activeWorktree);
+      writeState(root, { ...state, activeWorktree: null });
+      actions.push("removed orphaned sandbox worktree");
     }
 
     const recommendation = recoveryRecommendation(interrupted);

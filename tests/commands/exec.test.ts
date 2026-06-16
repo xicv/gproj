@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,9 +12,29 @@ import { readState } from "../../src/format/store.js";
 import { readJournal } from "../../src/format/journal.js";
 import { existsSync } from "node:fs";
 import { filePath, runPath } from "../../src/format/paths.js";
+import { registerExecutorTarget } from "../../src/backends/executor.js";
 
 let root: string;
-beforeEach(async () => { root = mkdtempSync(join(tmpdir(), "gproj-")); runInit(root, "Build X"); await runPackage(root, { plannerName: "stub", maxTokens: 4000 }); });
+beforeEach(async () => {
+  root = mkdtempSync(join(tmpdir(), "gproj-"));
+  runInit(root, "Build X");
+  writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" } }));
+  await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
+});
+
+function git(args: string[], cwd: string) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  return { stdout: result.stdout ?? "", stderr: result.stderr ?? "", code: result.status };
+}
+
+function initGitRepo(root: string): void {
+  expect(git(["init"], root).code).toBe(0);
+  expect(git(["config", "user.email", "test@example.com"], root).code).toBe(0);
+  expect(git(["config", "user.name", "Test User"], root).code).toBe(0);
+  writeFileSync(join(root, "README.md"), "base\n");
+  expect(git(["add", "README.md"], root).code).toBe(0);
+  expect(git(["commit", "-m", "init"], root).code).toBe(0);
+}
 
 describe("exec", () => {
   it("runs the executor and writes a valid run evidence record", async () => {
@@ -23,7 +44,7 @@ describe("exec", () => {
   });
 
   it("persists failing verifier evidence even when the executor claims tests passed", async () => {
-    writeFileSync(filePath(root, "config.json"), JSON.stringify({ testCommand: ["node", "-e", "process.exit(1)"] }));
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" }, testCommand: ["node", "-e", "process.exit(1)"] }));
 
     const runId = await runExec(root, { executorName: "stub" });
     const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
@@ -35,7 +56,7 @@ describe("exec", () => {
   });
 
   it("persists passing verifier evidence", async () => {
-    writeFileSync(filePath(root, "config.json"), JSON.stringify({ testCommand: ["node", "-e", ""] }));
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" }, testCommand: ["node", "-e", ""] }));
 
     const runId = await runExec(root, { executorName: "stub" });
     const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
@@ -86,5 +107,33 @@ describe("exec", () => {
 
     expect(execEvents.map((entry) => entry.event)).toEqual(["exec_start", "exec_done"]);
     expect(execEvents[1]?.runId).toBe(runId);
+  });
+
+  it("runs the executor and verifier in a sandbox worktree", async () => {
+    const sandboxRoot = mkdtempSync(join(tmpdir(), "gproj-"));
+    initGitRepo(sandboxRoot);
+    runInit(sandboxRoot, "Build X");
+    writeFileSync(filePath(sandboxRoot, "config.json"), JSON.stringify({
+      sandbox: { mode: "worktree" },
+      testCommand: ["node", "-e", "process.exit(require('node:fs').existsSync('sandbox-output.txt') ? 0 : 1)"],
+    }));
+    await runPackage(sandboxRoot, { plannerName: "stub", maxTokens: 4000 });
+    registerExecutorTarget({
+      name: "stub-write",
+      async run(req) {
+        writeFileSync(join(req.root, "sandbox-output.txt"), "sandboxed\n");
+        return { changedFiles: ["sandbox-output.txt"], diffStat: "+1 -0", testsPassed: true, failures: [], raw: "wrote file" };
+      },
+    });
+
+    const runId = await runExec(sandboxRoot, { executorName: "stub-write" });
+    const state = readState(sandboxRoot);
+    const run = JSON.parse(readFileSync(runPath(sandboxRoot, runId), "utf8"));
+
+    expect(existsSync(join(sandboxRoot, "sandbox-output.txt"))).toBe(false);
+    expect(state?.activeWorktree).toEqual(expect.any(String));
+    expect(existsSync(join(state?.activeWorktree ?? "", "sandbox-output.txt"))).toBe(true);
+    expect(run.changedFiles).toEqual(["sandbox-output.txt"]);
+    expect(run.verifierPassed).toBe(true);
   });
 });

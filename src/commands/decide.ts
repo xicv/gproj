@@ -1,5 +1,6 @@
 import { appendJournal } from "../format/journal.js";
 import { appendNdjson, readState, writeState } from "../format/store.js";
+import { applyWorktree, removeWorktree } from "../sandbox/worktree.js";
 
 export type Decision = "accept" | "adjust" | "reject";
 
@@ -14,10 +15,38 @@ export function runDecide(root: string, decision: Decision): void {
   }
   appendNdjson(root, "decisions.ndjson", { ts: new Date().toISOString(), title: `phase ${state.currentPhase} decision: ${decision}`, why: `human gate: ${decision}` });
   appendJournal(root, { phase: state.currentPhase, event: "decide", status: state.status, detail: decision });
+  const nextState = decision === "accept"
+    ? { ...state, currentPhase: state.currentPhase + 1, status: "planning" as const }
+    : { ...state, status: "planning" as const };
+  if (state.activeWorktree) {
+    if (decision === "accept") {
+      const applied = applyWorktree(root, state.activeWorktree);
+      appendJournal(root, {
+        phase: state.currentPhase,
+        event: "sandbox_apply",
+        status: state.status,
+        detail: applied.detail,
+      });
+      if (applied.conflict) {
+        throw new Error(`sandbox changes conflict on apply; resolve manually in ${state.activeWorktree}`);
+      }
+      removeWorktree(root, state.activeWorktree);
+    } else {
+      removeWorktree(root, state.activeWorktree);
+      appendJournal(root, {
+        phase: state.currentPhase,
+        event: "sandbox_discard",
+        status: state.status,
+        detail: state.activeWorktree,
+      });
+    }
+    writeState(root, { ...nextState, activeWorktree: null });
+    return;
+  }
   if (decision === "accept") {
-    writeState(root, { ...state, currentPhase: state.currentPhase + 1, status: "planning" });
+    writeState(root, nextState);
   } else {
     // adjust and reject both loop back to planning on the same phase
-    writeState(root, { ...state, status: "planning" });
+    writeState(root, nextState);
   }
 }
