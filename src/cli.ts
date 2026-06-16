@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { runInit } from "./commands/init.js";
 import { renderStatus } from "./commands/status.js";
 import { withLock } from "./lock/lock.js";
+import { loadConfig } from "./config/projectConfig.js";
 
 interface CliIo {
   log: (line: string) => void;
@@ -15,6 +16,18 @@ class CliExit extends Error {
   constructor(public readonly code: number) {
     super("cli exit");
   }
+}
+
+function plannerName(root: string, env: NodeJS.ProcessEnv): string {
+  return env.GPROJ_PLANNER ?? loadConfig(root).plannerBackend ?? "stub";
+}
+
+function executorName(root: string, env: NodeJS.ProcessEnv): string {
+  return env.GPROJ_EXECUTOR ?? loadConfig(root).executorBackend ?? "stub";
+}
+
+function maxTokens(root: string, env: NodeJS.ProcessEnv): number {
+  return Number(env.GPROJ_MAX_TOKENS ?? loadConfig(root).maxPackTokens ?? 6000);
 }
 
 export async function runCli(
@@ -56,7 +69,7 @@ export async function runCli(
     case "package": {
       const { runPackage } = await import("./commands/package.js");
       io.log(await withLock(root, "package", async () => {
-        await runPackage(root, { plannerName: env.GPROJ_PLANNER ?? "stub", maxTokens: Number(env.GPROJ_MAX_TOKENS ?? 6000) });
+        await runPackage(root, { plannerName: plannerName(root, env), maxTokens: maxTokens(root, env) });
         return renderStatus(root);
       }));
       break;
@@ -64,7 +77,7 @@ export async function runCli(
     case "exec": {
       const { runExec } = await import("./commands/exec.js");
       const { id, status } = await withLock(root, "exec", async () => {
-        const runId = await runExec(root, { executorName: env.GPROJ_EXECUTOR ?? "stub" });
+        const runId = await runExec(root, { executorName: executorName(root, env) });
         return { id: runId, status: renderStatus(root) };
       });
       io.log(`run recorded: ${id}`);
@@ -74,7 +87,7 @@ export async function runCli(
     case "review": {
       const { runReview } = await import("./commands/review.js");
       io.log(await withLock(root, "review", async () => {
-        await runReview(root, { plannerName: env.GPROJ_PLANNER ?? "stub", maxTokens: Number(env.GPROJ_MAX_TOKENS ?? 6000) });
+        await runReview(root, { plannerName: plannerName(root, env), maxTokens: maxTokens(root, env) });
         return renderStatus(root);
       }));
       break;
@@ -92,9 +105,9 @@ export async function runCli(
       const { runAdvance } = await import("./commands/advance.js");
       io.log(await withLock(root, "advance", async () => {
         await runAdvance(root, {
-          plannerName: env.GPROJ_PLANNER ?? "stub",
-          executorName: env.GPROJ_EXECUTOR ?? "stub",
-          maxTokens: Number(env.GPROJ_MAX_TOKENS ?? 6000),
+          plannerName: plannerName(root, env),
+          executorName: executorName(root, env),
+          maxTokens: maxTokens(root, env),
         });
         return renderStatus(root);
       }));

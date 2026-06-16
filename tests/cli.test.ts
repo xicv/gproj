@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.js";
 import { runInit } from "../src/commands/init.js";
+import { writeMarkdown } from "../src/format/store.js";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
@@ -47,5 +48,34 @@ describe("cli", () => {
     await expect(runCli(root, ["bogus"], { log: () => undefined, error: (line) => errors.push(line) })).rejects.toThrow("cli exit");
     expect(errors.join("\n")).toContain("recover");
     expect(errors.join("\n")).toContain("doctor");
+  });
+
+  it("uses configured planner backend unless env overrides it", async () => {
+    runInit(root, "Build X");
+    mkdirSync(join(root, ".gproj"), { recursive: true });
+    writeFileSync(join(root, ".gproj", "config.json"), JSON.stringify({ plannerBackend: "missing-planner" }));
+
+    await expect(runCli(root, ["package"], { log: () => undefined, error: () => undefined }, {})).rejects.toThrow(
+      "unknown planner backend: missing-planner",
+    );
+
+    const lines: string[] = [];
+    await runCli(root, ["package"], { log: (line) => lines.push(line), error: () => undefined }, { GPROJ_PLANNER: "stub" });
+    expect(lines.join("\n")).toContain("status packaged");
+  });
+
+  it("uses configured maxPackTokens unless env overrides it", async () => {
+    runInit(root, "Build X");
+    mkdirSync(join(root, ".gproj"), { recursive: true });
+    writeFileSync(join(root, ".gproj", "config.json"), JSON.stringify({ maxPackTokens: 20 }));
+    writeMarkdown(root, "phases/01.md", "# Phase\n" + "mandatory ".repeat(500));
+
+    await expect(runCli(root, ["package"], { log: () => undefined, error: () => undefined }, {})).rejects.toThrow(
+      "maxPackTokens=20",
+    );
+
+    const lines: string[] = [];
+    await runCli(root, ["package"], { log: (line) => lines.push(line), error: () => undefined }, { GPROJ_MAX_TOKENS: "4000" });
+    expect(lines.join("\n")).toContain("status packaged");
   });
 });

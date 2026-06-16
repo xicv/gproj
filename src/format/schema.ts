@@ -11,6 +11,7 @@ export const StateSchema = z.object({
   status: z.enum(["init", "planning", "packaged", "executing", "reviewing", "deciding", "done"]),
   phases: z.array(PhaseMetaSchema),
   activeWorktree: z.string().nullable().default(null),
+  packageId: z.number().int().default(0),
 });
 
 export const DecisionSchema = z.object({ ts: z.string(), title: z.string(), why: z.string() });
@@ -22,6 +23,7 @@ export const RunSchema = z.object({
   postHead: z.string().nullable().default(null),
   verifierPassed: z.boolean().default(false),
   verifierFailures: z.array(z.string()).default([]),
+  packageId: z.number().int().default(0),
   executorClaims: z.object({
     changedFiles: z.array(z.string()),
     testsPassed: z.boolean().optional(),

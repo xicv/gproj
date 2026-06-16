@@ -67,6 +67,7 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     failures: verifier.verifierFailures,
     verifierPassed: verifier.verifierPassed,
     verifierFailures: verifier.verifierFailures,
+    packageId: state.packageId,
     executorClaims: {
       changedFiles: result.changedFiles,
       testsPassed: result.testsPassed,

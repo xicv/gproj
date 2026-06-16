@@ -32,11 +32,12 @@ export async function runReview(root: string, opts: ReviewOpts): Promise<void> {
     throw new Error(`PACK_TOO_LARGE: mandatory context (goal/phase/run evidence) exceeds maxPackTokens=${opts.maxTokens}; raise maxPackTokens or compact decisions/known-issues`);
   }
   const pack = result.text;
-  const planner = getPlannerBackend(opts.plannerName);
+  const planner = getPlannerBackend(opts.plannerName, root);
   const verdict = await planner.ask({
     pack,
     instruction: `Review phase ${phase} from the evidence only (do NOT assume repo access). Answer: (1) goal met? (2) acceptance met? (3) over-engineered? (4) tests enough? (5) proceed to next phase?`,
     mode: "review",
+    phaseKey: `p${phase}`,
   });
   const id = `p${phase}-v${nextReviewIndex(root, phase)}`;
   const p = reviewPath(root, id);

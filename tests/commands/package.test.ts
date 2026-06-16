@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../src/commands/init.js";
 import { runPackage } from "../../src/commands/package.js";
 import { readMarkdown, readState, writeMarkdown } from "../../src/format/store.js";
 import { readJournal } from "../../src/format/journal.js";
+import { filePath } from "../../src/format/paths.js";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); runInit(root, "Build X"); });
@@ -36,5 +37,23 @@ describe("package", () => {
     );
 
     expect(readMarkdown(root, "packages/01-exec-prompt.md")).toBeNull();
+  });
+
+  it("preserves package history while updating the canonical latest files", async () => {
+    await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
+    const firstPrompt = readMarkdown(root, "packages/01-exec-prompt.md");
+
+    await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
+    const secondPrompt = readMarkdown(root, "packages/01-exec-prompt.md");
+
+    expect(readState(root)?.packageId).toBe(2);
+    expect(existsSync(filePath(root, "packages/p1-pkg1-exec-prompt.md"))).toBe(true);
+    expect(existsSync(filePath(root, "packages/p1-pkg2-exec-prompt.md"))).toBe(true);
+    expect(existsSync(filePath(root, "phases/p1-pkg1.md"))).toBe(true);
+    expect(existsSync(filePath(root, "phases/p1-pkg2.md"))).toBe(true);
+    expect(readMarkdown(root, "packages/p1-pkg1-exec-prompt.md")).toBe(firstPrompt);
+    expect(readMarkdown(root, "packages/p1-pkg2-exec-prompt.md")).toBe(secondPrompt);
+    expect(readMarkdown(root, "packages/01-exec-prompt.md")).toBe(secondPrompt);
+    expect(readMarkdown(root, "phases/01.md")).toBe(readMarkdown(root, "phases/p1-pkg2.md"));
   });
 });

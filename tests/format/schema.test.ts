@@ -6,6 +6,7 @@ describe("schemas", () => {
     const s = StateSchema.parse({ currentPhase: 1, status: "planning", phases: [] });
     expect(s.currentPhase).toBe(1);
     expect(s.activeWorktree).toBe(null);
+    expect(s.packageId).toBe(0);
   });
   it("rejects an unknown status", () => {
     expect(() => StateSchema.parse({ currentPhase: 1, status: "bogus", phases: [] })).toThrow();
@@ -17,5 +18,6 @@ describe("schemas", () => {
   it("parses a run evidence record", () => {
     const r = RunSchema.parse({ id: "r1", phase: 1, promptHash: "abc", changedFiles: ["a.ts"], diffStat: "+1 -0", testsPassed: true, failures: [] });
     expect(r.testsPassed).toBe(true);
+    expect(r.packageId).toBe(0);
   });
 });

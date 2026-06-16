@@ -43,6 +43,15 @@ describe("exec", () => {
     expect(readState(root)?.status).toBe("reviewing");
   });
 
+  it("records the current package id on the run evidence", async () => {
+    await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
+
+    const runId = await runExec(root, { executorName: "stub" });
+    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+
+    expect(run.packageId).toBe(2);
+  });
+
   it("persists failing verifier evidence even when the executor claims tests passed", async () => {
     writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" }, testCommand: ["node", "-e", "process.exit(1)"] }));
 
