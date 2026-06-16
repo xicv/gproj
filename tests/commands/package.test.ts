@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../src/commands/init.js";
 import { runPackage } from "../../src/commands/package.js";
-import { readMarkdown, readState } from "../../src/format/store.js";
+import { readMarkdown, readState, writeMarkdown } from "../../src/format/store.js";
 import { readJournal } from "../../src/format/journal.js";
 
 let root: string;
@@ -26,5 +26,15 @@ describe("package", () => {
   it("journals package start and done", async () => {
     await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
     expect(readJournal(root).map((entry) => entry.event)).toEqual(["package_start", "package_done"]);
+  });
+
+  it("throws PACK_TOO_LARGE before asking the planner when mandatory context overflows", async () => {
+    writeMarkdown(root, "phases/01.md", "# Phase\n" + "mandatory ".repeat(500));
+
+    await expect(runPackage(root, { plannerName: "stub", maxTokens: 20 })).rejects.toThrow(
+      "PACK_TOO_LARGE: mandatory context (goal/phase/run evidence) exceeds maxPackTokens=20; raise maxPackTokens or compact decisions/known-issues",
+    );
+
+    expect(readMarkdown(root, "packages/01-exec-prompt.md")).toBeNull();
   });
 });

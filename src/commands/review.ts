@@ -1,5 +1,6 @@
 import { buildContextPack } from "../assembler/pack.js";
 import { getPlannerBackend } from "../backends/planner.js";
+import { loadConfig } from "../config/projectConfig.js";
 import { appendJournal } from "../format/journal.js";
 import { readState, writeState } from "../format/store.js";
 import { existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
@@ -26,7 +27,11 @@ export async function runReview(root: string, opts: ReviewOpts): Promise<void> {
   }
   const phase = state.currentPhase;
   appendJournal(root, { phase, event: "review_start", status: state.status });
-  const pack = buildContextPack(root, phase, opts.maxTokens);
+  const result = buildContextPack(root, phase, opts.maxTokens, loadConfig(root).redactions);
+  if (result.mandatoryOverflow) {
+    throw new Error(`PACK_TOO_LARGE: mandatory context (goal/phase/run evidence) exceeds maxPackTokens=${opts.maxTokens}; raise maxPackTokens or compact decisions/known-issues`);
+  }
+  const pack = result.text;
   const planner = getPlannerBackend(opts.plannerName);
   const verdict = await planner.ask({
     pack,

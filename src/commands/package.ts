@@ -1,5 +1,6 @@
 import { buildContextPack } from "../assembler/pack.js";
 import { getPlannerBackend } from "../backends/planner.js";
+import { loadConfig } from "../config/projectConfig.js";
 import { appendJournal } from "../format/journal.js";
 import { readState, writeState, writeMarkdown } from "../format/store.js";
 
@@ -13,7 +14,11 @@ export async function runPackage(root: string, opts: PackageOpts): Promise<void>
   }
   const phase = state.currentPhase;
   appendJournal(root, { phase, event: "package_start", status: state.status });
-  const pack = buildContextPack(root, phase, opts.maxTokens);
+  const result = buildContextPack(root, phase, opts.maxTokens, loadConfig(root).redactions);
+  if (result.mandatoryOverflow) {
+    throw new Error(`PACK_TOO_LARGE: mandatory context (goal/phase/run evidence) exceeds maxPackTokens=${opts.maxTokens}; raise maxPackTokens or compact decisions/known-issues`);
+  }
+  const pack = result.text;
   const planner = getPlannerBackend(opts.plannerName);
   const plan = await planner.ask({ pack, instruction: `Produce a phase ${phase} plan: goal, in-scope, out-of-scope, acceptance, tests, risk.`, mode: "plan" });
   writeMarkdown(root, `phases/${String(phase).padStart(2, "0")}.md`, plan);
