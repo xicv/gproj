@@ -1,13 +1,21 @@
 {
   "name": "@nickcao/gproj",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "GPT Project persistent-planner-brain CLI",
   "type": "module",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/xicv/gproj.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xicv/gproj.git"
+  },
   "homepage": "https://github.com/xicv/gproj#readme",
-  "files": ["dist", "README.md"],
-  "bin": { "gproj": "./dist/cli.js" },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "bin": {
+    "gproj": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
@@ -15,7 +23,16 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "engines": { "node": ">=18.17.0" },
-  "dependencies": { "zod": "^3.23.8" },
-  "devDependencies": { "typescript": "^5.6.0", "tsx": "^4.19.0", "vitest": "^2.1.0", "@types/node": "^22.0.0" }
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0"
+  }
 }
