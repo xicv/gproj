@@ -13,7 +13,13 @@ export function runDecide(root: string, decision: Decision): void {
   }
   const state = readState(root);
   if (!state) throw new Error("gproj not initialized");
-  if (state.status !== "deciding") {
+  // accept requires a completed review (status "deciding"). reject/adjust are
+  // "don't apply" paths, so allow them straight from "reviewing" too — you
+  // shouldn't have to pay for a review just to discard an obviously-bad run
+  // (e.g. an executor no-op). See issue #1.
+  const reviewed = state.status === "deciding";
+  const canBailFromReview = (decision === "reject" || decision === "adjust") && state.status === "reviewing";
+  if (!reviewed && !canBailFromReview) {
     throw new Error(`nothing to decide; run \`gproj review\` first (status: ${state.status})`);
   }
   // TOCTOU guard: the sandbox worktree was created from root's HEAD at exec

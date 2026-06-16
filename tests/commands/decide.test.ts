@@ -144,4 +144,23 @@ describe("review + decide", () => {
     expect(existsSync(worktreePath)).toBe(false);
     expect(readState(repoRoot)?.activeWorktree).toBe(null);
   });
+
+  // issue #1: reject/adjust must not require a (costly) review first.
+  it("reject works straight from reviewing without a review", () => {
+    expect(readState(root)?.status).toBe("reviewing");
+    runDecide(root, "reject");
+    expect(readState(root)?.status).toBe("planning");
+    expect(readState(root)?.currentPhase).toBe(1);
+  });
+
+  it("adjust works straight from reviewing without a review", () => {
+    expect(readState(root)?.status).toBe("reviewing");
+    runDecide(root, "adjust");
+    expect(readState(root)?.status).toBe("planning");
+  });
+
+  it("accept still requires a review (not allowed from reviewing)", () => {
+    expect(readState(root)?.status).toBe("reviewing");
+    expect(() => runDecide(root, "accept")).toThrow(/run `gproj review` first/);
+  });
 });
