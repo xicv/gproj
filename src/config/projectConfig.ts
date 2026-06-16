@@ -13,6 +13,11 @@ export const GprojConfigSchema = z.object({
     mode: z.enum(["none", "worktree"]).default("worktree"),
   }).default({ mode: "worktree" }),
   redactions: z.array(z.string()).default([]),
+  cloudSync: z.object({
+    enabled: z.boolean().optional(),
+    chatgptUrl: z.string().optional(),
+    include: z.array(z.string()).optional(),
+  }).optional(),
 });
 
 export type GprojConfig = z.infer<typeof GprojConfigSchema>;

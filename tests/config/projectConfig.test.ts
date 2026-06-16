@@ -43,6 +43,23 @@ describe("project config", () => {
     });
   });
 
+  it("accepts optional cloud sync config", () => {
+    mkdirSync(join(root, ".gproj"), { recursive: true });
+    writeFileSync(join(root, ".gproj", "config.json"), JSON.stringify({
+      cloudSync: {
+        enabled: true,
+        chatgptUrl: "https://chatgpt.com/g/project",
+        include: [".gproj/**"],
+      },
+    }));
+
+    expect(loadConfig(root).cloudSync).toEqual({
+      enabled: true,
+      chatgptUrl: "https://chatgpt.com/g/project",
+      include: [".gproj/**"],
+    });
+  });
+
   it("rejects an invalid sandbox mode", () => {
     mkdirSync(join(root, ".gproj"), { recursive: true });
     writeFileSync(join(root, ".gproj", "config.json"), JSON.stringify({

@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
-import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { runInit } from "./commands/init.js";
 import { renderStatus } from "./commands/status.js";
 import { withLock } from "./lock/lock.js";
 import { loadConfig } from "./config/projectConfig.js";
+import type { CloudSyncSpawn } from "./backends/cloudSync.js";
 
 interface CliIo {
   log: (line: string) => void;
   error: (line: string) => void;
+}
+
+interface CliDeps {
+  cloudSyncSpawn?: CloudSyncSpawn;
 }
 
 class CliExit extends Error {
@@ -36,9 +40,9 @@ export async function runCli(
   args: string[],
   io: CliIo = { log: console.log, error: console.error },
   env: NodeJS.ProcessEnv = process.env,
+  deps: CliDeps = {},
 ): Promise<void> {
-  const { positionals } = parseArgs({ allowPositionals: true, args });
-  const [cmd, ...rest] = positionals;
+  const [cmd, ...rest] = args;
   switch (cmd) {
     case "init": {
       const goal = rest.join(" ");
@@ -114,8 +118,13 @@ export async function runCli(
       }));
       break;
     }
+    case "sync": {
+      const { runSync } = await import("./commands/sync.js");
+      io.log(await runSync(root, rest, { spawnFn: deps.cloudSyncSpawn }));
+      break;
+    }
     default:
-      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance`);
+      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance, sync`);
       throw new CliExit(2);
   }
 }

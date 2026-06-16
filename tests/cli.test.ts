@@ -48,6 +48,7 @@ describe("cli", () => {
     await expect(runCli(root, ["bogus"], { log: () => undefined, error: (line) => errors.push(line) })).rejects.toThrow("cli exit");
     expect(errors.join("\n")).toContain("recover");
     expect(errors.join("\n")).toContain("doctor");
+    expect(errors.join("\n")).toContain("sync");
   });
 
   it("uses configured planner backend unless env overrides it", async () => {
