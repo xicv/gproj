@@ -120,6 +120,20 @@ describe("review + decide", () => {
     expect(readState(repoRoot)?.activeWorktree).toBe(null);
   });
 
+  it("refuses accept when root HEAD moved after sandbox exec", async () => {
+    const { repoRoot, worktreePath } = await runSandboxedReview("stale-output.txt");
+    writeFileSync(join(repoRoot, "root-advanced.txt"), "root changed\n");
+    expect(git(["add", "root-advanced.txt"], repoRoot).code).toBe(0);
+    expect(git(["commit", "-m", "root advanced"], repoRoot).code).toBe(0);
+
+    expect(() => runDecide(repoRoot, "accept")).toThrow(/HEAD moved/);
+
+    const state = readState(repoRoot);
+    expect(state?.status).toBe("deciding");
+    expect(state?.activeWorktree).toBe(worktreePath);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
   it("reject discards sandbox changes and removes the worktree", async () => {
     const { repoRoot, worktreePath } = await runSandboxedReview("rejected-output.txt");
 

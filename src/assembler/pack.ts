@@ -5,7 +5,7 @@ import { filePath } from "../format/paths.js";
 import { RunSchema, type Run } from "../format/schema.js";
 import { sanitize } from "../redact/sanitize.js";
 
-function latestRunForPhase(root: string, phase: number): Run | null {
+export function latestRunForPhase(root: string, phase: number): Run | null {
   const dir = filePath(root, "runs");
   if (!existsSync(dir)) return null;
   const runs = readdirSync(dir)
