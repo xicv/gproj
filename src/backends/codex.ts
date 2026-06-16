@@ -6,7 +6,7 @@ export type SpawnFn = (req: ExecutorRun) => Promise<SpawnResult>;
 
 const realSpawn: SpawnFn = (req) =>
   new Promise<SpawnResult>((resolve, reject) => {
-    const child = spawn("codex", ["exec", "--cd", req.root, req.prompt], { timeout: 1_800_000 });
+    const child = spawn("codex", ["exec", "--cd", req.root, "-c", "approval_policy=\"never\"", "--sandbox", "workspace-write", req.prompt], { timeout: 1_800_000, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d.toString()));
