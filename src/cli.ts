@@ -20,7 +20,7 @@ class CliExit extends Error {
 }
 
 function plannerName(root: string, env: NodeJS.ProcessEnv): string {
-  return env.GPROJ_PLANNER ?? loadConfig(root).plannerBackend ?? "stub";
+  return env.GPROJ_PLANNER ?? loadConfig(root).plannerBackend ?? "oracle-browser";
 }
 
 function executorName(root: string, env: NodeJS.ProcessEnv): string {

@@ -5,7 +5,7 @@ import { z } from "zod";
 export const GprojConfigSchema = z.object({
   testCommand: z.array(z.string()).optional(),
   typecheckCommand: z.array(z.string()).optional(),
-  plannerBackend: z.string().default("stub"),
+  plannerBackend: z.string().default("oracle-browser"),
   executorBackend: z.string().default("stub"),
   plannerModel: z.string().optional(),
   maxPackTokens: z.number().default(6000),

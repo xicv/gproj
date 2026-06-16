@@ -75,7 +75,7 @@ describe("cli", () => {
     );
 
     const lines: string[] = [];
-    await runCli(root, ["package"], { log: (line) => lines.push(line), error: () => undefined }, { GPROJ_MAX_TOKENS: "4000" });
+    await runCli(root, ["package"], { log: (line) => lines.push(line), error: () => undefined }, { GPROJ_MAX_TOKENS: "4000", GPROJ_PLANNER: "stub" });
     expect(lines.join("\n")).toContain("status packaged");
   });
 });

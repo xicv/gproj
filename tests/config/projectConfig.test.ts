@@ -12,7 +12,7 @@ describe("project config", () => {
     expect(loadConfig(root)).toEqual({
       testCommand: undefined,
       typecheckCommand: undefined,
-      plannerBackend: "stub",
+      plannerBackend: "oracle-browser",
       executorBackend: "stub",
       plannerModel: undefined,
       maxPackTokens: 6000,
