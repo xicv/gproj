@@ -145,4 +145,24 @@ describe("exec", () => {
     expect(run.changedFiles).toEqual(["sandbox-output.txt"]);
     expect(run.verifierPassed).toBe(true);
   });
+
+  it("embeds the phase plan into the executor prompt so it is self-contained", async () => {
+    // The executor runs in a worktree without .gproj/, so the plan must travel
+    // inside the prompt — not be referenced. Overwrite the plan with a marker
+    // and assert the executor actually receives it alongside the exec-prompt.
+    writeFileSync(filePath(root, "phases/01.md"), "PLAN-MARKER: implement the widget exactly so\n");
+    let captured = "";
+    registerExecutorTarget({
+      name: "stub-capture",
+      async run(req) {
+        captured = req.prompt;
+        return { changedFiles: [], diffStat: "", testsPassed: false, failures: [], raw: "" };
+      },
+    });
+
+    await runExec(root, { executorName: "stub-capture" });
+
+    expect(captured).toContain("PLAN-MARKER: implement the widget exactly so");
+    expect(captured).toContain("Executor instruction");
+  });
 });

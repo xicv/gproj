@@ -47,8 +47,16 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     writeState(root, { ...state, activeWorktree: null });
   }
   appendJournal(root, { phase, event: "exec_start", status: state.status, detail });
-  const prompt = readMarkdown(root, `packages/${String(phase).padStart(2, "0")}-exec-prompt.md`);
-  if (!prompt) throw new Error(`no exec prompt for phase ${phase}; run \`gproj package\` first`);
+  const phaseNN = String(phase).padStart(2, "0");
+  const execPrompt = readMarkdown(root, `packages/${phaseNN}-exec-prompt.md`);
+  if (!execPrompt) throw new Error(`no exec prompt for phase ${phase}; run \`gproj package\` first`);
+  // The executor runs in a sandbox worktree that does NOT contain .gproj/, so it
+  // cannot read the phase plan the exec-prompt may reference. Embed the plan as
+  // authoritative context so the executor instruction is self-contained.
+  const plan = readMarkdown(root, `phases/${phaseNN}.md`);
+  const prompt = plan
+    ? `# Phase ${phase} plan (authoritative — implement exactly this scope)\n\n${plan}\n\n---\n\n# Executor instruction\n\n${execPrompt}`
+    : execPrompt;
   const target = getExecutorTarget(opts.executorName);
   const baseHead = captureHead(executorCwd);
   const result = await target.run({ root: executorCwd, phase, prompt });
