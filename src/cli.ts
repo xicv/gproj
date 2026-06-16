@@ -24,7 +24,7 @@ function plannerName(root: string, env: NodeJS.ProcessEnv): string {
 }
 
 function executorName(root: string, env: NodeJS.ProcessEnv): string {
-  return env.GPROJ_EXECUTOR ?? loadConfig(root).executorBackend ?? "stub";
+  return env.GPROJ_EXECUTOR ?? loadConfig(root).executorBackend ?? "codex";
 }
 
 function maxTokens(root: string, env: NodeJS.ProcessEnv): number {

@@ -6,7 +6,7 @@ export const GprojConfigSchema = z.object({
   testCommand: z.array(z.string()).optional(),
   typecheckCommand: z.array(z.string()).optional(),
   plannerBackend: z.string().default("oracle-browser"),
-  executorBackend: z.string().default("stub"),
+  executorBackend: z.string().default("codex"),
   plannerModel: z.string().optional(),
   maxPackTokens: z.number().default(6000),
   sandbox: z.object({
