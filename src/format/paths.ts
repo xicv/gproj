@@ -1,7 +1,22 @@
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+
 export const gprojDir = (root: string) => join(root, ".gproj");
 export const filePath = (root: string, rel: string) => join(gprojDir(root), rel);
-export const phasePath = (root: string, id: number) => filePath(root, `phases/${String(id).padStart(2, "0")}.md`);
-export const execPromptPath = (root: string, id: number) => filePath(root, `packages/${String(id).padStart(2, "0")}-exec-prompt.md`);
-export const runPath = (root: string, id: string) => filePath(root, `runs/${id}.json`);
-export const reviewPath = (root: string, id: string) => filePath(root, `reviews/${id}.md`);
+
+export const phaseNumber = (phase: number) => String(phase).padStart(2, "0");
+export const ensureParentDir = (path: string): void => {
+  mkdirSync(dirname(path), { recursive: true });
+};
+
+export const goalPath = (root: string) => filePath(root, "GOAL.md");
+export const statusPath = (root: string) => filePath(root, "STATUS.md");
+export const historyPath = (root: string) => filePath(root, "history.ndjson");
+export const statePath = (root: string) => filePath(root, "state.json");
+export const configPath = (root: string) => filePath(root, "config.json");
+export const phaseDir = (root: string, phase: number) => filePath(root, `phases/${phaseNumber(phase)}`);
+export const phasePlanPath = (root: string, phase: number) => join(phaseDir(root, phase), "plan.md");
+export const phaseExecPromptPath = (root: string, phase: number) => join(phaseDir(root, phase), "exec-prompt.md");
+export const phaseRunPath = (root: string, phase: number, idx: number) => join(phaseDir(root, phase), `run-${idx}.json`);
+export const phaseReviewPath = (root: string, phase: number, idx: number) => join(phaseDir(root, phase), `review-${idx}.md`);
+export const phaseDecisionPath = (root: string, phase: number) => join(phaseDir(root, phase), "decision.md");

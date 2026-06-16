@@ -68,7 +68,7 @@ describe("cli", () => {
     runInit(root, "Build X");
     mkdirSync(join(root, ".gproj"), { recursive: true });
     writeFileSync(join(root, ".gproj", "config.json"), JSON.stringify({ maxPackTokens: 20 }));
-    writeMarkdown(root, "phases/01.md", "# Phase\n" + "mandatory ".repeat(500));
+    writeMarkdown(root, "phases/01/plan.md", "# Phase\n" + "mandatory ".repeat(500));
 
     await expect(runCli(root, ["package"], { log: () => undefined, error: () => undefined }, {})).rejects.toThrow(
       "maxPackTokens=20",

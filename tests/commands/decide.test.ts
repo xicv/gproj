@@ -10,7 +10,7 @@ import { runReview } from "../../src/commands/review.js";
 import { runDecide } from "../../src/commands/decide.js";
 import { readNdjson, readState } from "../../src/format/store.js";
 import { readJournal } from "../../src/format/journal.js";
-import { filePath } from "../../src/format/paths.js";
+import { filePath, phaseDecisionPath } from "../../src/format/paths.js";
 import { registerExecutorTarget } from "../../src/backends/executor.js";
 
 let root: string;
@@ -85,6 +85,7 @@ describe("review + decide", () => {
     expect(readNdjson(root, "decisions.ndjson").some((d) => {
       return typeof d === "object" && d !== null && "title" in d && String(d.title).includes("decision: accept");
     })).toBe(true);
+    expect(readFileSync(phaseDecisionPath(root, 1), "utf8")).toContain("accept");
   });
   it("journals the human decision", async () => {
     await runReview(root, { plannerName: "stub", maxTokens: 4000 });

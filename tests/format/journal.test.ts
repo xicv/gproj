@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendJournal, readJournal } from "../../src/format/journal.js";
+import { historyPath } from "../../src/format/paths.js";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
@@ -15,6 +16,7 @@ describe("journal", () => {
     const entries = readJournal(root);
     expect(entries.map((entry) => entry.event)).toEqual(["package_start", "package_done"]);
     expect(entries.every((entry) => typeof entry.ts === "string" && entry.ts.length > 0)).toBe(true);
+    expect(existsSync(historyPath(root))).toBe(true);
   });
 
   it("returns an empty list when the journal does not exist", () => {

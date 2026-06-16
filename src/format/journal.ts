@@ -23,9 +23,9 @@ export interface JournalEntry {
 }
 
 export function appendJournal(root: string, entry: Omit<JournalEntry, "ts">): void {
-  appendNdjson(root, "journal.ndjson", { ts: new Date().toISOString(), ...entry });
+  appendNdjson(root, "history.ndjson", { ts: new Date().toISOString(), ...entry });
 }
 
 export function readJournal(root: string): JournalEntry[] {
-  return readNdjson(root, "journal.ndjson") as JournalEntry[];
+  return readNdjson(root, "history.ndjson") as JournalEntry[];
 }

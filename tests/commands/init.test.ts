@@ -9,9 +9,10 @@ let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
 
 describe("init", () => {
-  it("scaffolds project.md and state.json", () => {
+  it("scaffolds GOAL.md, STATUS.md, and state.json", () => {
     runInit(root, "Build a coding agent");
-    expect(readMarkdown(root, "project.md")).toContain("Build a coding agent");
+    expect(readMarkdown(root, "GOAL.md")).toContain("Build a coding agent");
+    expect(readMarkdown(root, "STATUS.md")).toContain("Current phase: 1");
     expect(readState(root)?.currentPhase).toBe(1);
     expect(readState(root)?.status).toBe("init");
   });

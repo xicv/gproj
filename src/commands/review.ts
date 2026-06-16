@@ -2,18 +2,17 @@ import { buildContextPack } from "../assembler/pack.js";
 import { getPlannerBackend } from "../backends/planner.js";
 import { loadConfig } from "../config/projectConfig.js";
 import { appendJournal } from "../format/journal.js";
-import { readState, writeState } from "../format/store.js";
-import { existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { filePath, reviewPath } from "../format/paths.js";
+import { readState, writeState, writeMarkdownPath } from "../format/store.js";
+import { existsSync, readdirSync } from "node:fs";
+import { phaseDir, phaseReviewPath } from "../format/paths.js";
 
 export interface ReviewOpts { plannerName: string; maxTokens: number; }
 
 function nextReviewIndex(root: string, phase: number): number {
-  const dir = filePath(root, "reviews");
+  const dir = phaseDir(root, phase);
   if (!existsSync(dir)) return 1;
   const idxs = readdirSync(dir)
-    .map((f) => f.match(new RegExp(`^p${phase}-v(\\d+)\\.md$`)))
+    .map((f) => f.match(/^review-(\d+)\.md$/))
     .filter((m): m is RegExpMatchArray => m !== null)
     .map((m) => Number(m[1]));
   return (idxs.length ? Math.max(...idxs) : 0) + 1;
@@ -39,10 +38,8 @@ export async function runReview(root: string, opts: ReviewOpts): Promise<void> {
     mode: "review",
     phaseKey: `p${phase}`,
   });
-  const id = `p${phase}-v${nextReviewIndex(root, phase)}`;
-  const p = reviewPath(root, id);
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, verdict);
+  const p = phaseReviewPath(root, phase, nextReviewIndex(root, phase));
+  writeMarkdownPath(p, verdict);
   writeState(root, { ...state, status: "deciding" });
   appendJournal(root, { phase, event: "review_done", status: "deciding" });
 }

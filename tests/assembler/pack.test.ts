@@ -2,14 +2,15 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeMarkdown, appendNdjson, writeState } from "../../src/format/store.js";
+import { appendNdjson, writeMarkdown, writeMarkdownPath, writeState } from "../../src/format/store.js";
 import { buildContextPack } from "../../src/assembler/pack.js";
+import { goalPath, phasePlanPath, phaseRunPath } from "../../src/format/paths.js";
 
 let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "gproj-"));
   writeState(root, { currentPhase: 1, status: "planning", phases: [] });
-  writeMarkdown(root, "project.md", "# Goal\nBuild X");
+  writeMarkdownPath(goalPath(root), "# Goal\nBuild X");
   writeMarkdown(root, "architecture.md", "# Arch\nCLI + store");
   appendNdjson(root, "decisions.ndjson", { ts: "t", title: "local-first", why: "no project API" });
 });
@@ -30,7 +31,7 @@ describe("buildContextPack", () => {
   });
 
   it("reports mandatory overflow when mandatory sections exceed the budget", () => {
-    writeMarkdown(root, "phases/01.md", "# Phase\n" + "mandatory ".repeat(500));
+    writeMarkdownPath(phasePlanPath(root, 1), "# Phase\n" + "mandatory ".repeat(500));
 
     const pack = buildContextPack(root, 1, 20);
 
@@ -53,7 +54,7 @@ describe("buildContextPack", () => {
   });
 
   it("sanitizes section text before rendering", () => {
-    writeMarkdown(root, "project.md", "# Goal\nUse sk-abcDEF0123456789_xyz safely");
+    writeMarkdownPath(goalPath(root), "# Goal\nUse sk-abcDEF0123456789_xyz safely");
 
     const pack = buildContextPack(root, 1, 4000);
 
@@ -61,8 +62,8 @@ describe("buildContextPack", () => {
     expect(pack.text).not.toContain("sk-abcDEF0123456789_xyz");
   });
   it("renders verified run evidence before untrusted executor claims", () => {
-    mkdirSync(join(root, ".gproj", "runs"), { recursive: true });
-    writeFileSync(join(root, ".gproj", "runs", "p1-r1.json"), JSON.stringify({
+    mkdirSync(join(root, ".gproj", "phases", "01"), { recursive: true });
+    writeFileSync(phaseRunPath(root, 1, 1), JSON.stringify({
       id: "p1-r1",
       phase: 1,
       promptHash: "hash",
@@ -89,8 +90,8 @@ describe("buildContextPack", () => {
   });
 
   it("uses the highest numeric run id for the latest run in a phase", () => {
-    mkdirSync(join(root, ".gproj", "runs"), { recursive: true });
-    writeFileSync(join(root, ".gproj", "runs", "p1-r1.json"), JSON.stringify({
+    mkdirSync(join(root, ".gproj", "phases", "01"), { recursive: true });
+    writeFileSync(phaseRunPath(root, 1, 1), JSON.stringify({
       id: "p1-r1",
       phase: 1,
       promptHash: "hash",
@@ -101,7 +102,7 @@ describe("buildContextPack", () => {
       verifierPassed: true,
       verifierFailures: [],
     }));
-    writeFileSync(join(root, ".gproj", "runs", "p1-r10.json"), JSON.stringify({
+    writeFileSync(phaseRunPath(root, 1, 10), JSON.stringify({
       id: "p1-r10",
       phase: 1,
       promptHash: "hash",

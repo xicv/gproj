@@ -1,32 +1,37 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { readMarkdown, readNdjson, readState } from "../format/store.js";
+import { readMarkdown, readMarkdownPath, readNdjson, readState } from "../format/store.js";
 import { planBudget, type DroppedSection, type Section, type TruncatedSection } from "./budget.js";
-import { filePath } from "../format/paths.js";
+import { goalPath, phaseDir, phasePlanPath, phaseReviewPath, phaseRunPath } from "../format/paths.js";
 import { RunSchema, type Run } from "../format/schema.js";
 import { sanitize } from "../redact/sanitize.js";
 
 export function latestRunForPhase(root: string, phase: number): Run | null {
-  const dir = filePath(root, "runs");
+  const dir = phaseDir(root, phase);
   if (!existsSync(dir)) return null;
   const runs = readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => { try { return RunSchema.parse(JSON.parse(readFileSync(filePath(root, `runs/${f}`), "utf8"))); } catch { return null; } })
+    .map((f) => {
+      const match = f.match(/^run-(\d+)\.json$/);
+      return match ? { index: Number(match[1]), name: f } : null;
+    })
+    .filter((f): f is { index: number; name: string } => f !== null)
+    .sort((a, b) => b.index - a.index)
+    .map((f) => { try { return RunSchema.parse(JSON.parse(readFileSync(phaseRunPath(root, phase, f.index), "utf8"))); } catch { return null; } })
     .filter((r): r is Run => r !== null && r.phase === phase);
-  runs.sort((a, b) => runIndex(b.id) - runIndex(a.id));
   return runs.length ? runs[0] : null;
 }
 
-function runIndex(id: string): number {
-  const match = id.match(/-r(\d+)$/);
-  return match ? Number(match[1]) : -1;
-}
-
 function latestReview(root: string, phase: number): string | null {
-  const dir = filePath(root, "reviews");
+  const dir = phaseDir(root, phase);
   if (!existsSync(dir)) return null;
-  const files = readdirSync(dir).filter((f) => f.startsWith(`p${phase}-`) && f.endsWith(".md")).sort();
+  const files = readdirSync(dir)
+    .map((name) => {
+      const match = name.match(/^review-(\d+)\.md$/);
+      return match ? { index: Number(match[1]), name } : null;
+    })
+    .filter((review): review is { index: number; name: string } => review !== null)
+    .sort((a, b) => a.index - b.index);
   if (!files.length) return null;
-  return readFileSync(filePath(root, `reviews/${files[files.length - 1]}`), "utf8");
+  return readFileSync(phaseReviewPath(root, phase, files[files.length - 1].index), "utf8");
 }
 
 export interface PackResult {
@@ -39,9 +44,9 @@ export interface PackResult {
 
 export function buildContextPack(root: string, phaseId: number, maxTokens: number, redactions: string[] = []): PackResult {
   const sections: Section[] = [];
-  const goal = readMarkdown(root, "project.md");
+  const goal = readMarkdownPath(goalPath(root));
   if (goal) sections.push({ label: "GOAL", priority: 100, mandatory: true, text: sanitize(goal, redactions) });
-  const phase = readMarkdown(root, `phases/${String(phaseId).padStart(2, "0")}.md`);
+  const phase = readMarkdownPath(phasePlanPath(root, phaseId));
   if (phase) sections.push({ label: `PHASE ${phaseId}`, priority: 90, mandatory: true, text: sanitize(phase, redactions) });
   const run = latestRunForPhase(root, phaseId);
   if (run) sections.push({

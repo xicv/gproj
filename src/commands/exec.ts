@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { getExecutorTarget } from "../backends/executor.js";
 import { loadConfig } from "../config/projectConfig.js";
 import { appendJournal } from "../format/journal.js";
-import { readState, writeState, readMarkdown } from "../format/store.js";
-import { filePath } from "../format/paths.js";
+import { readState, writeState, readMarkdownPath } from "../format/store.js";
+import { phaseDir, phaseExecPromptPath, phasePlanPath } from "../format/paths.js";
 import { createWorktree } from "../sandbox/worktree.js";
 import { captureHead, gitEvidence } from "../verifier/git.js";
 import { runChecks } from "../verifier/tests.js";
@@ -14,10 +14,10 @@ import { ingestRun } from "./ingestRun.js";
 export interface ExecOpts { executorName: string; }
 
 function nextRunIndex(root: string, phase: number): number {
-  const dir = filePath(root, "runs");
+  const dir = phaseDir(root, phase);
   if (!existsSync(dir)) return 1;
   const idxs = readdirSync(dir)
-    .map((f) => f.match(new RegExp(`^p${phase}-r(\\d+)\\.json$`)))
+    .map((f) => f.match(/^run-(\d+)\.json$/))
     .filter((m): m is RegExpMatchArray => m !== null)
     .map((m) => Number(m[1]));
   return (idxs.length ? Math.max(...idxs) : 0) + 1;
@@ -47,13 +47,12 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     writeState(root, { ...state, activeWorktree: null });
   }
   appendJournal(root, { phase, event: "exec_start", status: state.status, detail });
-  const phaseNN = String(phase).padStart(2, "0");
-  const execPrompt = readMarkdown(root, `packages/${phaseNN}-exec-prompt.md`);
+  const execPrompt = readMarkdownPath(phaseExecPromptPath(root, phase));
   if (!execPrompt) throw new Error(`no exec prompt for phase ${phase}; run \`gproj package\` first`);
   // The executor runs in a sandbox worktree that does NOT contain .gproj/, so it
   // cannot read the phase plan the exec-prompt may reference. Embed the plan as
   // authoritative context so the executor instruction is self-contained.
-  const plan = readMarkdown(root, `phases/${phaseNN}.md`);
+  const plan = readMarkdownPath(phasePlanPath(root, phase));
   const prompt = plan
     ? `# Phase ${phase} plan (authoritative — implement exactly this scope)\n\n${plan}\n\n---\n\n# Executor instruction\n\n${execPrompt}`
     : execPrompt;

@@ -1,5 +1,6 @@
 import { appendJournal } from "../format/journal.js";
-import { appendNdjson, readState, writeState } from "../format/store.js";
+import { phaseDecisionPath } from "../format/paths.js";
+import { appendNdjson, readState, writeState, writeMarkdownPath } from "../format/store.js";
 import { applyWorktree, removeWorktree } from "../sandbox/worktree.js";
 import { captureHead } from "../verifier/git.js";
 import { latestRunForPhase } from "../assembler/pack.js";
@@ -30,7 +31,9 @@ export function runDecide(root: string, decision: Decision): void {
       );
     }
   }
-  appendNdjson(root, "decisions.ndjson", { ts: new Date().toISOString(), title: `phase ${state.currentPhase} decision: ${decision}`, why: `human gate: ${decision}` });
+  const decisionRecord = { ts: new Date().toISOString(), title: `phase ${state.currentPhase} decision: ${decision}`, why: `human gate: ${decision}` };
+  appendNdjson(root, "decisions.ndjson", decisionRecord);
+  writeMarkdownPath(phaseDecisionPath(root, state.currentPhase), `# Decision\n\n${decision}\n\n## Why\n\n${decisionRecord.why}\n\nRecorded: ${decisionRecord.ts}\n`);
   appendJournal(root, { phase: state.currentPhase, event: "decide", status: state.status, detail: decision });
   const nextState = decision === "accept"
     ? { ...state, currentPhase: state.currentPhase + 1, status: "planning" as const }

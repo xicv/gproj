@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { filePath } from "../format/paths.js";
+import { phaseDir, phaseRunPath } from "../format/paths.js";
 import { readJournal } from "../format/journal.js";
 import { RunSchema } from "../format/schema.js";
 import { readState } from "../format/store.js";
@@ -8,17 +8,17 @@ import { detectInterrupted, retryCommandFor } from "./recover.js";
 import { NEXT } from "./status.js";
 
 function latestRunVerifier(root: string, phase: number): string {
-  const dir = filePath(root, "runs");
+  const dir = phaseDir(root, phase);
   if (!existsSync(dir)) return "n/a";
   const latest = readdirSync(dir)
     .map((name) => {
-      const match = name.match(new RegExp(`^p${phase}-r(\\d+)\\.json$`));
+      const match = name.match(/^run-(\d+)\.json$/);
       return match ? { name, index: Number(match[1]) } : null;
     })
     .filter((run): run is { name: string; index: number } => run !== null)
     .sort((a, b) => b.index - a.index)[0];
   if (!latest) return "n/a";
-  const run = RunSchema.parse(JSON.parse(readFileSync(filePath(root, `runs/${latest.name}`), "utf8")));
+  const run = RunSchema.parse(JSON.parse(readFileSync(phaseRunPath(root, phase, latest.index), "utf8")));
   return run.verifierPassed ? "PASS" : "FAIL";
 }
 

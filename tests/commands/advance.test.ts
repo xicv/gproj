@@ -17,7 +17,7 @@ beforeEach(() => {
 describe("advance", () => {
   it("runs package→exec→review in one shot and stops at deciding", async () => {
     await runAdvance(root, { plannerName: "stub", executorName: "stub", maxTokens: 4000 });
-    expect(readMarkdown(root, "phases/01.md")).toBeTruthy();
+    expect(readMarkdown(root, "phases/01/plan.md")).toBeTruthy();
     expect(readState(root)?.status).toBe("deciding");
   });
 });

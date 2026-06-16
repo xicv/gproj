@@ -11,7 +11,7 @@ import { runDecide } from "../../src/commands/decide.js";
 import { readState } from "../../src/format/store.js";
 import { readJournal } from "../../src/format/journal.js";
 import { existsSync } from "node:fs";
-import { filePath, runPath } from "../../src/format/paths.js";
+import { filePath, phasePlanPath, phaseRunPath } from "../../src/format/paths.js";
 import { registerExecutorTarget } from "../../src/backends/executor.js";
 
 let root: string;
@@ -36,10 +36,16 @@ function initGitRepo(root: string): void {
   expect(git(["commit", "-m", "init"], root).code).toBe(0);
 }
 
+function runPathFromId(root: string, id: string): string {
+  const match = id.match(/^p(\d+)-r(\d+)$/);
+  if (!match) throw new Error(`invalid run id ${id}`);
+  return phaseRunPath(root, Number(match[1]), Number(match[2]));
+}
+
 describe("exec", () => {
   it("runs the executor and writes a valid run evidence record", async () => {
     const runId = await runExec(root, { executorName: "stub" });
-    expect(existsSync(runPath(root, runId))).toBe(true);
+    expect(existsSync(runPathFromId(root, runId))).toBe(true);
     expect(readState(root)?.status).toBe("reviewing");
   });
 
@@ -47,7 +53,7 @@ describe("exec", () => {
     await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
 
     const runId = await runExec(root, { executorName: "stub" });
-    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+    const run = JSON.parse(readFileSync(runPathFromId(root, runId), "utf8"));
 
     expect(run.packageId).toBe(2);
   });
@@ -56,7 +62,7 @@ describe("exec", () => {
     writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" }, testCommand: ["node", "-e", "process.exit(1)"] }));
 
     const runId = await runExec(root, { executorName: "stub" });
-    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+    const run = JSON.parse(readFileSync(runPathFromId(root, runId), "utf8"));
 
     expect(run.testsPassed).toBe(false);
     expect(run.verifierPassed).toBe(false);
@@ -68,7 +74,7 @@ describe("exec", () => {
     writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" }, testCommand: ["node", "-e", ""] }));
 
     const runId = await runExec(root, { executorName: "stub" });
-    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+    const run = JSON.parse(readFileSync(runPathFromId(root, runId), "utf8"));
 
     expect(run.testsPassed).toBe(true);
     expect(run.verifierPassed).toBe(true);
@@ -77,7 +83,7 @@ describe("exec", () => {
 
   it("fails closed as unverified when no verifier config exists", async () => {
     const runId = await runExec(root, { executorName: "stub" });
-    const run = JSON.parse(readFileSync(runPath(root, runId), "utf8"));
+    const run = JSON.parse(readFileSync(runPathFromId(root, runId), "utf8"));
 
     expect(run.testsPassed).toBe(false);
     expect(run.verifierPassed).toBe(false);
@@ -99,7 +105,7 @@ describe("exec", () => {
     await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
     const second = await runExec(root, { executorName: "stub" });
 
-    unlinkSync(runPath(root, first));
+    unlinkSync(runPathFromId(root, first));
     await runReview(root, { plannerName: "stub", maxTokens: 4000 });
     runDecide(root, "adjust");
     await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
@@ -107,7 +113,7 @@ describe("exec", () => {
 
     expect(second).toBe("p1-r2");
     expect(third).toBe("p1-r3");
-    expect(existsSync(runPath(root, third))).toBe(true);
+    expect(existsSync(runPathFromId(root, third))).toBe(true);
   });
 
   it("journals exec start and done with the run id", async () => {
@@ -137,7 +143,7 @@ describe("exec", () => {
 
     const runId = await runExec(sandboxRoot, { executorName: "stub-write" });
     const state = readState(sandboxRoot);
-    const run = JSON.parse(readFileSync(runPath(sandboxRoot, runId), "utf8"));
+    const run = JSON.parse(readFileSync(runPathFromId(sandboxRoot, runId), "utf8"));
 
     expect(existsSync(join(sandboxRoot, "sandbox-output.txt"))).toBe(false);
     expect(state?.activeWorktree).toEqual(expect.any(String));
@@ -150,7 +156,7 @@ describe("exec", () => {
     // The executor runs in a worktree without .gproj/, so the plan must travel
     // inside the prompt — not be referenced. Overwrite the plan with a marker
     // and assert the executor actually receives it alongside the exec-prompt.
-    writeFileSync(filePath(root, "phases/01.md"), "PLAN-MARKER: implement the widget exactly so\n");
+    writeFileSync(phasePlanPath(root, 1), "PLAN-MARKER: implement the widget exactly so\n");
     let captured = "";
     registerExecutorTarget({
       name: "stub-capture",

@@ -14,8 +14,8 @@ beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); runInit(root, "
 describe("package", () => {
   it("writes a phase plan and an exec prompt using the planner backend", async () => {
     await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
-    expect(readMarkdown(root, "phases/01.md")).toContain("STUB PLAN");
-    expect(readMarkdown(root, "packages/01-exec-prompt.md")).toBeTruthy();
+    expect(readMarkdown(root, "phases/01/plan.md")).toContain("STUB PLAN");
+    expect(readMarkdown(root, "phases/01/exec-prompt.md")).toBeTruthy();
     expect(readState(root)?.status).toBe("packaged");
   });
 
@@ -30,30 +30,29 @@ describe("package", () => {
   });
 
   it("throws PACK_TOO_LARGE before asking the planner when mandatory context overflows", async () => {
-    writeMarkdown(root, "phases/01.md", "# Phase\n" + "mandatory ".repeat(500));
+    writeMarkdown(root, "phases/01/plan.md", "# Phase\n" + "mandatory ".repeat(500));
 
     await expect(runPackage(root, { plannerName: "stub", maxTokens: 20 })).rejects.toThrow(
       "PACK_TOO_LARGE: mandatory context (goal/phase/run evidence) exceeds maxPackTokens=20; raise maxPackTokens or compact decisions/known-issues",
     );
 
-    expect(readMarkdown(root, "packages/01-exec-prompt.md")).toBeNull();
+    expect(readMarkdown(root, "phases/01/exec-prompt.md")).toBeNull();
   });
 
-  it("preserves package history while updating the canonical latest files", async () => {
+  it("updates the canonical latest files without legacy versioned package copies", async () => {
     await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
-    const firstPrompt = readMarkdown(root, "packages/01-exec-prompt.md");
+    const firstPrompt = readMarkdown(root, "phases/01/exec-prompt.md");
 
     await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
-    const secondPrompt = readMarkdown(root, "packages/01-exec-prompt.md");
+    const secondPrompt = readMarkdown(root, "phases/01/exec-prompt.md");
 
     expect(readState(root)?.packageId).toBe(2);
-    expect(existsSync(filePath(root, "packages/p1-pkg1-exec-prompt.md"))).toBe(true);
-    expect(existsSync(filePath(root, "packages/p1-pkg2-exec-prompt.md"))).toBe(true);
-    expect(existsSync(filePath(root, "phases/p1-pkg1.md"))).toBe(true);
-    expect(existsSync(filePath(root, "phases/p1-pkg2.md"))).toBe(true);
-    expect(readMarkdown(root, "packages/p1-pkg1-exec-prompt.md")).toBe(firstPrompt);
-    expect(readMarkdown(root, "packages/p1-pkg2-exec-prompt.md")).toBe(secondPrompt);
-    expect(readMarkdown(root, "packages/01-exec-prompt.md")).toBe(secondPrompt);
-    expect(readMarkdown(root, "phases/01.md")).toBe(readMarkdown(root, "phases/p1-pkg2.md"));
+    expect(secondPrompt).toBeTruthy();
+    expect(readMarkdown(root, "phases/01/exec-prompt.md")).toBe(secondPrompt);
+    expect(existsSync(filePath(root, "packages/p1-pkg1-exec-prompt.md"))).toBe(false);
+    expect(existsSync(filePath(root, "packages/p1-pkg2-exec-prompt.md"))).toBe(false);
+    expect(existsSync(filePath(root, "phases/p1-pkg1.md"))).toBe(false);
+    expect(existsSync(filePath(root, "phases/p1-pkg2.md"))).toBe(false);
+    expect(firstPrompt).not.toBe(secondPrompt);
   });
 });
