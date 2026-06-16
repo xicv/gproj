@@ -1,9 +1,11 @@
 {
-  "name": "gproj",
+  "name": "@xicv/gproj",
   "version": "0.0.1",
   "description": "GPT Project persistent-planner-brain CLI",
   "type": "module",
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/xicv/gproj.git" },
+  "homepage": "https://github.com/xicv/gproj#readme",
   "files": ["dist", "README.md"],
   "bin": { "gproj": "./dist/cli.js" },
   "scripts": {
