@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -123,10 +124,20 @@ async function main(): Promise<void> {
   await runCli(process.cwd(), process.argv.slice(2));
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  main().catch((e) => {
-    if (e instanceof CliExit) process.exit(e.code);
-    console.error(e instanceof Error ? e.message : String(e));
-    process.exit(1);
-  });
+const entry = process.argv[1];
+if (entry) {
+  let entryReal: string;
+  try {
+    entryReal = realpathSync(resolve(entry));
+  } catch {
+    entryReal = resolve(entry);
+  }
+
+  if (fileURLToPath(import.meta.url) === entryReal) {
+    main().catch((e) => {
+      if (e instanceof CliExit) process.exit(e.code);
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(1);
+    });
+  }
 }
