@@ -68,5 +68,24 @@ const realSpawn: OracleSpawn = ({ prompt, context, mode }) =>
   });
 
 export function makeOracleBrowserBackend(spawnFn: OracleSpawn = realSpawn): PlannerBackend {
-  return { name: "oracle-browser", async ask(req: PlannerAsk) { return spawnFn({ prompt: req.instruction, context: req.pack, mode: req.mode }); } };
+  return {
+    name: "oracle-browser",
+    async ask(req: PlannerAsk) {
+      // The oracle CLI relaunches a Chrome session (fixed debug port) per call;
+      // back-to-back calls (package() makes two) can transiently collide while
+      // the previous browser/port tears down. Retry once after a short delay so
+      // the prior session fully releases before surfacing the failure.
+      const attempt = () => spawnFn({ prompt: req.instruction, context: req.pack, mode: req.mode });
+      try {
+        return await attempt();
+      } catch (firstErr) {
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+        try {
+          return await attempt();
+        } catch {
+          throw firstErr;
+        }
+      }
+    },
+  };
 }
