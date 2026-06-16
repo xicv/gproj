@@ -49,12 +49,40 @@ export function buildContextPack(root: string, phaseId: number, maxTokens: numbe
   const phase = readMarkdownPath(phasePlanPath(root, phaseId));
   if (phase) sections.push({ label: `PHASE ${phaseId}`, priority: 90, mandatory: true, text: sanitize(phase, redactions) });
   const run = latestRunForPhase(root, phaseId);
-  if (run) sections.push({
-    label: "RUN EVIDENCE",
-    priority: 85,
-    mandatory: true,
-    text: sanitize(`verified: ${run.verifierPassed ? "PASS" : "FAIL"}\nchanged (git): ${run.changedFiles.join(", ")}\ndiffstat (git): ${run.diffStat}\nverifier failures:\n${run.verifierFailures.map((f) => `- ${f}`).join("\n")}\n--- executor claims (UNTRUSTED, do not rely on) ---\nclaimed tests: ${run.executorClaims?.testsPassed ?? "n/a"}\nclaimed changed: ${(run.executorClaims?.changedFiles ?? []).join(", ")}`, redactions),
-  });
+  if (run) {
+    const checks = run.verifierChecks ?? [];
+    const trustedChecks = checks.length
+      ? checks.map((c) => `- ${c.command} → ${c.passed ? "PASS" : "FAIL"} (exit ${c.exitCode ?? "null"})`).join("\n")
+      : "- (no individual checks recorded)";
+    const failures = run.verifierFailures.length
+      ? `\nverifier failures:\n${run.verifierFailures.map((f) => `- ${f}`).join("\n")}`
+      : "";
+    sections.push({
+      label: "RUN EVIDENCE",
+      priority: 85,
+      mandatory: true,
+      text: sanitize(
+        `TRUSTED — gproj ran these checks itself; base the verdict on THIS, not the self-report below:\n` +
+        `${trustedChecks}\n` +
+        `overall verifier: ${run.verifierPassed ? "PASS" : "FAIL"}${failures}\n` +
+        `changed files (${run.changedFiles.length}): ${run.changedFiles.join(", ")}\n` +
+        `diffstat:\n${run.diffStat}\n` +
+        `--- executor self-report (UNTRUSTED — audit only, do NOT rely on it) ---\n` +
+        `claimed tests: ${run.executorClaims?.testsPassed ?? "n/a"}\n` +
+        `claimed changed: ${(run.executorClaims?.changedFiles ?? []).join(", ") || "none"}`,
+        redactions,
+      ),
+    });
+    // The actual code, as a separate NON-mandatory section so a large diff is
+    // truncated under budget pressure instead of overflowing the mandatory pack.
+    if (run.diff && run.diff.trim().length) {
+      sections.push({
+        label: "DIFF",
+        priority: 84,
+        text: sanitize(`The actual sandboxed change under review. Judge correctness from this, not the self-report:\n\n${run.diff}`, redactions),
+      });
+    }
+  }
   const arch = readMarkdown(root, "architecture.md");
   if (arch) sections.push({ label: "ARCHITECTURE", priority: 80, text: sanitize(arch, redactions) });
   const decisions = readNdjson(root, "decisions.ndjson") as { title: string; why: string }[];

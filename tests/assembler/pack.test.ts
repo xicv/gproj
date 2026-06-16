@@ -83,10 +83,37 @@ describe("buildContextPack", () => {
 
     const pack = buildContextPack(root, 1, 4000);
     expect(pack.text).toContain("RUN EVIDENCE");
-    expect(pack.text).toContain("verified: FAIL");
+    expect(pack.text).toContain("overall verifier: FAIL");
     expect(pack.text).toContain("verified boom");
     expect(pack.text).toContain("UNTRUSTED");
     expect(pack.text).toContain("claimed tests: true");
+  });
+
+  it("renders a TRUSTED verifier-checks block and a separate bounded DIFF section", () => {
+    mkdirSync(join(root, ".gproj", "phases", "01"), { recursive: true });
+    writeFileSync(phaseRunPath(root, 1, 1), JSON.stringify({
+      id: "p1-r1",
+      phase: 1,
+      promptHash: "hash",
+      changedFiles: ["src/a.ts", "src/b.ts"],
+      diffStat: " src/a.ts | 2 +-\n src/b.ts | 9 +++++++++",
+      testsPassed: true,
+      failures: [],
+      verifierPassed: true,
+      verifierFailures: [],
+      verifierChecks: [
+        { command: "npx tsc --noEmit", passed: true, exitCode: 0 },
+        { command: "npx vitest run", passed: true, exitCode: 0 },
+      ],
+      diff: "diff --git a/src/b.ts b/src/b.ts\n+export const added = 1;\n",
+    }));
+
+    const pack = buildContextPack(root, 1, 4000);
+    expect(pack.text).toContain("TRUSTED");
+    expect(pack.text).toContain("npx vitest run → PASS (exit 0)");
+    expect(pack.text).toContain("changed files (2):");
+    expect(pack.text).toContain("## DIFF");
+    expect(pack.text).toContain("export const added = 1;");
   });
 
   it("uses the highest numeric run id for the latest run in a phase", () => {
@@ -115,7 +142,7 @@ describe("buildContextPack", () => {
     }));
 
     const pack = buildContextPack(root, 1, 4000);
-    expect(pack.text).toContain("verified: FAIL");
+    expect(pack.text).toContain("overall verifier: FAIL");
     expect(pack.text).toContain("new.ts");
     expect(pack.text).not.toContain("old.ts");
   });

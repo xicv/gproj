@@ -57,6 +57,33 @@ export function gitEvidence(root: string, baseHead: string | null, run: RunFn = 
   };
 }
 
+// Pathspec shared with applyWorktree: everything under the worktree except a
+// (possibly symlinked) node_modules tree.
+const DIFF_PATHSPEC = [".", ":(exclude)node_modules", ":(exclude)node_modules/**"];
+const MAX_DIFF_CHARS = 8000;
+
+// Capture diffStat + a bounded full diff the way applyWorktree actually applies
+// changes: `git add -A` then `git diff --cached HEAD`. Plain `git diff --stat`
+// (used by gitEvidence) omits UNTRACKED new files, so a feature that adds files
+// is under-reported in the evidence. Staging the index makes new files visible.
+//
+// SAFE ONLY in a disposable sandbox worktree — it mutates the index. Never call
+// it on a real repo: exec.ts gates this to sandbox.mode === "worktree", and
+// applyWorktree re-runs `git add -A` at decide time so the staging is harmless.
+export function captureStagedEvidence(
+  root: string,
+  run: RunFn = defaultRun,
+): { diffStat: string; diff: string } | null {
+  const add = run(["git", "add", "-A", "--", ...DIFF_PATHSPEC], root);
+  if (add.code !== 0) return null;
+  const diffStat = run(["git", "diff", "--cached", "--stat", "HEAD", "--", ...DIFF_PATHSPEC], root).stdout.trim();
+  const full = run(["git", "diff", "--cached", "HEAD", "--", ...DIFF_PATHSPEC], root).stdout;
+  const diff = full.length > MAX_DIFF_CHARS
+    ? `${full.slice(0, MAX_DIFF_CHARS)}\n… [diff truncated at ${MAX_DIFF_CHARS} chars]`
+    : full;
+  return { diffStat, diff };
+}
+
 function parsePorcelain(output: string): { path: string; status: string }[] {
   if (output.length === 0) return [];
   return output.split("\n").filter(Boolean).map((line) => {

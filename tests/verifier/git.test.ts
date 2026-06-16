@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { captureHead, gitEvidence, type RunFn } from "../../src/verifier/git.js";
+import { captureHead, captureStagedEvidence, gitEvidence, type RunFn } from "../../src/verifier/git.js";
 
 describe("git verifier", () => {
   it("captures the trimmed head sha", () => {
@@ -31,6 +31,47 @@ describe("git verifier", () => {
       ],
       diffStat: "src/a.ts | 2 +-",
     });
+  });
+
+  it("captureStagedEvidence stages new files so diffStat and diff include them", () => {
+    const calls: string[] = [];
+    const run: RunFn = (command) => {
+      const joined = command.join(" ");
+      calls.push(joined);
+      if (joined.startsWith("git add -A")) return { stdout: "", stderr: "", code: 0 };
+      if (joined.includes("diff --cached --stat HEAD")) {
+        return { stdout: " src/old.ts | 2 +-\n src/new.ts | 9 +++++++++\n 2 files changed\n", stderr: "", code: 1 };
+      }
+      if (joined.includes("diff --cached HEAD")) {
+        return { stdout: "diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n+const x = 1;\n", stderr: "", code: 1 };
+      }
+      return { stdout: "", stderr: "unexpected", code: 1 };
+    };
+
+    const result = captureStagedEvidence("/wt", run);
+    expect(result).not.toBeNull();
+    expect(result?.diffStat).toContain("src/new.ts");
+    expect(result?.diff).toContain("new file mode");
+    expect(calls.some((c) => c.startsWith("git add -A"))).toBe(true);
+  });
+
+  it("captureStagedEvidence bounds an oversized diff", () => {
+    const big = "+".repeat(20_000);
+    const run: RunFn = (command) => {
+      const joined = command.join(" ");
+      if (joined.startsWith("git add -A")) return { stdout: "", stderr: "", code: 0 };
+      if (joined.includes("--stat")) return { stdout: "stat", stderr: "", code: 1 };
+      return { stdout: big, stderr: "", code: 1 };
+    };
+
+    const result = captureStagedEvidence("/wt", run);
+    expect(result?.diff.length).toBeLessThan(big.length);
+    expect(result?.diff).toContain("[diff truncated");
+  });
+
+  it("captureStagedEvidence returns null when staging fails", () => {
+    const run: RunFn = () => ({ stdout: "", stderr: "fatal", code: 128 });
+    expect(captureStagedEvidence("/wt", run)).toBeNull();
   });
 
   it("returns non-repo evidence when rev-parse exits nonzero", () => {

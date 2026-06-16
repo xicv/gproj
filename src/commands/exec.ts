@@ -7,7 +7,7 @@ import { appendJournal } from "../format/journal.js";
 import { readState, writeState, readMarkdownPath } from "../format/store.js";
 import { phaseDir, phaseExecPromptPath, phasePlanPath } from "../format/paths.js";
 import { createWorktree } from "../sandbox/worktree.js";
-import { captureHead, gitEvidence } from "../verifier/git.js";
+import { captureHead, captureStagedEvidence, gitEvidence } from "../verifier/git.js";
 import { runChecks } from "../verifier/tests.js";
 import { ingestRun } from "./ingestRun.js";
 
@@ -60,6 +60,18 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
   const baseHead = captureHead(executorCwd);
   const result = await target.run({ root: executorCwd, phase, prompt });
   const git = gitEvidence(executorCwd, baseHead);
+  // In a sandbox worktree, capture diffStat + a bounded diff the way decide will
+  // actually apply (staged, includes new files). gitEvidence's plain `git diff`
+  // omits untracked files, so without this the evidence under-reports new files.
+  let diffStat = git.diffStat;
+  let diff = "";
+  if (cfg.sandbox.mode === "worktree") {
+    const staged = captureStagedEvidence(executorCwd);
+    if (staged) {
+      diffStat = staged.diffStat;
+      diff = staged.diff;
+    }
+  }
   const verifier = runChecks(executorCwd, { testCommand: cfg.testCommand, typecheckCommand: cfg.typecheckCommand });
   const id = `p${phase}-r${nextRunIndex(root, phase)}`;
   ingestRun(root, {
@@ -69,11 +81,13 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     baseHead,
     postHead: git.postHead,
     changedFiles: git.changedFiles.map((c) => c.path),
-    diffStat: git.diffStat,
+    diffStat,
+    diff,
     testsPassed: verifier.verifierPassed,
     failures: verifier.verifierFailures,
     verifierPassed: verifier.verifierPassed,
     verifierFailures: verifier.verifierFailures,
+    verifierChecks: verifier.checks.map((c) => ({ command: c.command.join(" "), passed: c.passed, exitCode: c.exitCode })),
     packageId: state.packageId,
     executorClaims: {
       changedFiles: result.changedFiles,

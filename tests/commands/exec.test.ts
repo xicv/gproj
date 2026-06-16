@@ -150,6 +150,12 @@ describe("exec", () => {
     expect(existsSync(join(state?.activeWorktree ?? "", "sandbox-output.txt"))).toBe(true);
     expect(run.changedFiles).toEqual(["sandbox-output.txt"]);
     expect(run.verifierPassed).toBe(true);
+    // review-evidence fixes: trusted checks recorded + the new file shows up in
+    // the staged diff/diffStat (plain `git diff` would omit the untracked file).
+    expect(run.verifierChecks.length).toBeGreaterThan(0);
+    expect(run.verifierChecks.every((c: { command: string; passed: boolean }) => typeof c.command === "string")).toBe(true);
+    expect(run.diff).toContain("sandbox-output.txt");
+    expect(run.diffStat).toContain("sandbox-output.txt");
   });
 
   it("embeds the phase plan into the executor prompt so it is self-contained", async () => {

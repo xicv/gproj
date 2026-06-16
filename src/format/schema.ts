@@ -23,6 +23,16 @@ export const RunSchema = z.object({
   postHead: z.string().nullable().default(null),
   verifierPassed: z.boolean().default(false),
   verifierFailures: z.array(z.string()).default([]),
+  // The TRUSTED checks gproj ran itself (command + outcome). Distinct from
+  // executorClaims; this is what the reviewer should base its verdict on.
+  verifierChecks: z.array(z.object({
+    command: z.string(),
+    passed: z.boolean(),
+    exitCode: z.number().nullable(),
+  })).default([]),
+  // Bounded patch of the sandboxed change, captured at exec time so the
+  // reviewer can read the actual code instead of inferring from a file list.
+  diff: z.string().default(""),
   packageId: z.number().int().default(0),
   executorClaims: z.object({
     changedFiles: z.array(z.string()),
