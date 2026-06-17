@@ -76,6 +76,21 @@ describe("git verifier", () => {
     expect(calls.filter((call) => call.startsWith("git add -A")).length).toBe(1);
   });
 
+  it("stages with a bare `git add -A` (no pathspec) so symlinked node_modules cannot break it", () => {
+    let addArgs: string[] | null = null;
+    const run: RunFn = (command) => {
+      if (command[0] === "git" && command[1] === "add") addArgs = command;
+      return { stdout: "", stderr: "", code: 0 };
+    };
+
+    expect(stageForEvidence("/wt", run)).toEqual({ staged: true });
+    expect(addArgs).toEqual(["git", "add", "-A"]);
+    // Never pass a pathspec to `git add`: ':(exclude)node_modules/**' is "beyond a
+    // symbolic link" when node_modules is symlinked into the worktree.
+    expect(addArgs).not.toContain("--");
+    expect((addArgs as unknown as string[]).some((a) => a.includes(":(exclude)"))).toBe(false);
+  });
+
   it("captureStagedEvidence bounds an oversized diff", () => {
     const big = "+".repeat(20_000);
     const run: RunFn = (command) => {

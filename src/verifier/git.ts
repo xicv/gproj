@@ -66,7 +66,8 @@ export function stageForEvidence(
   root: string,
   run: RunFn = defaultRun,
 ): { staged: true } | { staged: false; detail: string } {
-  const add = run(["git", "add", "-A", "--", ...DIFF_PATHSPEC], root);
+  // No pathspec: node_modules is gitignored, and sandbox worktrees symlink it.
+  const add = run(["git", "add", "-A"], root);
   if (add.code !== 0) return { staged: false, detail: add.stderr || add.stdout || "git add -A failed" };
   return { staged: true };
 }
