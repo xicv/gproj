@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resourcesManifestPath } from "../../src/format/paths.js";
 import { type ResourceCard } from "../../src/format/schema.js";
-import { add, getAll, writeAll } from "../../src/resources/manifest.js";
+import { add, getAll, linkCards, removeCard, writeAll } from "../../src/resources/manifest.js";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
@@ -41,5 +41,31 @@ describe("resources manifest", () => {
     writeFileSync(resourcesManifestPath(root), `${JSON.stringify(card("r1"))}\n{}\n`);
 
     expect(() => getAll(root)).toThrow(/line 2/);
+  });
+
+  it("rejects duplicate ids on atomic rewrites", () => {
+    expect(() => writeAll(root, [card("r1"), card("r1")])).toThrow("duplicate resource id: r1");
+  });
+
+  it("adds typed links and rejects invalid graph edges", () => {
+    const cards = [card("r1"), card("r2")];
+
+    expect(linkCards(cards, "r1", "references", "r2")).toEqual([
+      { ...card("r1"), links: [{ rel: "references", toId: "r2" }] },
+      card("r2"),
+    ]);
+    expect(() => linkCards(cards, "missing", "references", "r2")).toThrow("resource not found: missing");
+    expect(() => linkCards(cards, "r1", "invalid", "r2")).toThrow("invalid relation type: invalid");
+  });
+
+  it("removes a card and inbound links", () => {
+    const result = removeCard([
+      { ...card("r1"), links: [{ rel: "depends-on", toId: "r2" }] },
+      card("r2"),
+    ], "r2");
+
+    expect(result.removed.id).toBe("r2");
+    expect(result.removedLinks).toBe(1);
+    expect(result.cards).toEqual([card("r1")]);
   });
 });

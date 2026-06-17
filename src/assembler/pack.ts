@@ -4,6 +4,8 @@ import { planBudget, type DroppedSection, type Section, type TruncatedSection } 
 import { goalPath, phaseDir, phasePlanPath, phaseReviewPath, phaseRunPath } from "../format/paths.js";
 import { RunSchema, type Run } from "../format/schema.js";
 import { sanitize } from "../redact/sanitize.js";
+import { getAll as getResources } from "../resources/manifest.js";
+import { okfCardPath } from "../resources/okf.js";
 
 export function latestRunForPhase(root: string, phase: number): Run | null {
   const dir = phaseDir(root, phase);
@@ -32,6 +34,41 @@ function latestReview(root: string, phase: number): string | null {
     .sort((a, b) => a.index - b.index);
   if (!files.length) return null;
   return readFileSync(phaseReviewPath(root, phase, files[files.length - 1].index), "utf8");
+}
+
+const maxResourcesPerCategory = 5;
+const resourceExcerptLimit = 160;
+
+function truncateInline(value: string, max: number): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, max - 3).trimEnd()}...`;
+}
+
+function renderResourceHints(root: string): string | null {
+  const resources = getResources(root);
+  if (resources.length === 0) return null;
+  const byCategory = new Map<string, typeof resources>();
+  for (const resource of [...resources].sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id))) {
+    const group = byCategory.get(resource.category) ?? [];
+    if (group.length < maxResourcesPerCategory) group.push(resource);
+    byCategory.set(resource.category, group);
+  }
+
+  const lines: string[] = [];
+  for (const [category, group] of byCategory) {
+    lines.push(`### ${category}`);
+    for (const resource of group) {
+      const tags = resource.tags.length ? ` ${resource.tags.map((tag) => `#${tag}`).join(" ")}` : "";
+      const resourceLinks = resource.links ?? [];
+      const links = resourceLinks.length
+        ? ` [${resourceLinks.map((link) => `${link.rel}:${link.toId}`).join(", ")}]`
+        : "";
+      const excerpt = resource.excerpt ? ` - ${truncateInline(resource.excerpt, resourceExcerptLimit)}` : "";
+      lines.push(`- ${resource.title} (${resource.type}) -> .gproj/resources/${okfCardPath(resource)}${tags}${links}${excerpt}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 export interface PackResult {
@@ -87,6 +124,13 @@ export function buildContextPack(root: string, phaseId: number, maxTokens: numbe
   }
   const arch = readMarkdown(root, "architecture.md");
   if (arch) sections.push({ label: "ARCHITECTURE", priority: 80, text: sanitize(arch, redactions) });
+  try {
+    const resources = renderResourceHints(root);
+    if (resources) sections.push({ label: "RESOURCES", priority: 75, text: sanitize(resources, redactions) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sections.push({ label: "RESOURCES", priority: 75, text: sanitize(`resource index unavailable: ${message}`, redactions) });
+  }
   const decisions = readNdjson(root, "decisions.ndjson") as { title: string; why: string }[];
   if (decisions.length) sections.push({ label: "DECISIONS", priority: 70, text: sanitize(decisions.map((d) => `- ${d.title}: ${d.why}`).join("\n"), redactions) });
   const lastReview = latestReview(root, phaseId);

@@ -28,7 +28,7 @@ describe("resource import", () => {
     const card = importResource(root, "image.bin", new Date("2026-06-17T00:00:00.000Z"));
 
     expect(card.type).toBe("binary");
-    expect(card.resource).toMatch(/^_assets\/[a-f0-9]{64}\.bin$/);
+    expect(card.resource).toMatch(/^_assets\/image-[a-f0-9]{12}-[a-f0-9]{64}\.bin$/);
     expect(existsSync(join(resourcesBundleDir(root), card.resource ?? ""))).toBe(true);
     expect(readFileSync(join(resourcesBundleDir(root), card.resource ?? ""))).toEqual(Buffer.from([0, 1, 2, 3]));
   });

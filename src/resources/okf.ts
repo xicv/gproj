@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { ensureParentDir, resourcesBundleDir } from "../format/paths.js";
-import { atomicWrite } from "../format/store.js";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
+import { gprojDir, resourcesBundleDir } from "../format/paths.js";
 import { ResourceCardSchema, type ResourceCard } from "../format/schema.js";
 
 interface RenderedCard {
@@ -10,7 +9,9 @@ interface RenderedCard {
   fileName: string;
 }
 
-function segment(value: string): string {
+let tmpCounter = 0;
+
+export function segment(value: string): string {
   const safe = value
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
@@ -25,6 +26,18 @@ function yamlString(value: string): string {
 function yamlArray(name: string, values: string[]): string[] {
   if (values.length === 0) return [`${name}: []`];
   return [`${name}:`, ...values.map((value) => `  - ${yamlString(value)}`)];
+}
+
+function yamlLinks(card: ResourceCard): string[] {
+  const links = card.links ?? [];
+  if (links.length === 0) return ["links: []"];
+  return [
+    "links:",
+    ...links.flatMap((link) => [
+      `  - rel: ${yamlString(link.rel)}`,
+      `    toId: ${yamlString(link.toId)}`,
+    ]),
+  ];
 }
 
 function frontmatter(card: ResourceCard): string {
@@ -43,8 +56,16 @@ function frontmatter(card: ResourceCard): string {
   if (card.excerpt !== undefined) lines.push(`excerpt: ${yamlString(card.excerpt)}`);
   if (card.sourcePaths !== undefined) lines.push(...yamlArray("sourcePaths", card.sourcePaths));
   if (card.contentHash !== undefined) lines.push(`contentHash: ${yamlString(card.contentHash)}`);
+  if (card.contentSize !== undefined) lines.push(`contentSize: ${card.contentSize}`);
+  lines.push(...yamlLinks(card));
   lines.push("---");
   return lines.join("\n");
+}
+
+function relatedSection(card: ResourceCard): string {
+  const links = [...(card.links ?? [])].sort((a, b) => a.rel.localeCompare(b.rel) || a.toId.localeCompare(b.toId));
+  if (links.length === 0) return "## Related\n";
+  return ["## Related", "", ...links.map((link) => `- ${link.rel}: ${link.toId}`)].join("\n");
 }
 
 export function renderResourceMarkdown(card: ResourceCard): string {
@@ -52,7 +73,7 @@ export function renderResourceMarkdown(card: ResourceCard): string {
   const body = parsed.body ?? parsed.excerpt ?? "";
   const sections = [frontmatter(parsed)];
   if (body.trim().length > 0) sections.push(body.trimEnd());
-  sections.push("## Related\n");
+  sections.push(relatedSection(parsed));
   return `${sections.join("\n\n")}\n`;
 }
 
@@ -75,13 +96,9 @@ function renderedCards(cards: ResourceCard[]): RenderedCard[] {
     .sort(compareRendered);
 }
 
-function resetBundle(root: string): void {
-  const dir = resourcesBundleDir(root);
-  mkdirSync(dir, { recursive: true });
-  for (const name of readdirSync(dir)) {
-    if (name === "_assets") continue;
-    rmSync(join(dir, name), { recursive: true, force: true });
-  }
+export function okfCardPath(card: ResourceCard): string {
+  const parsed = ResourceCardSchema.parse(card);
+  return `${segment(parsed.category)}/${segment(parsed.id)}.md`;
 }
 
 function renderRootIndex(cards: RenderedCard[]): string {
@@ -110,12 +127,14 @@ function renderCategoryIndex(categoryDir: string, cards: RenderedCard[]): string
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function renderOkfBundle(root: string, cards: ResourceCard[]): void {
-  const rendered = renderedCards(cards);
-  const bundleDir = resourcesBundleDir(root);
-  resetBundle(root);
+function toPosix(path: string): string {
+  return path.split(sep).join("/");
+}
 
-  atomicWrite(join(bundleDir, "index.md"), renderRootIndex(rendered));
+export function renderOkfFiles(cards: ResourceCard[]): Map<string, string> {
+  const rendered = renderedCards(cards);
+  const files = new Map<string, string>();
+  files.set("index.md", renderRootIndex(rendered));
 
   const byCategory = new Map<string, RenderedCard[]>();
   for (const item of rendered) {
@@ -125,13 +144,93 @@ export function renderOkfBundle(root: string, cards: ResourceCard[]): void {
   }
 
   for (const [categoryDir, group] of byCategory) {
-    const dir = join(bundleDir, categoryDir);
-    mkdirSync(dir, { recursive: true });
-    atomicWrite(join(dir, "index.md"), renderCategoryIndex(categoryDir, group));
-    for (const item of group) {
-      const path = join(dir, item.fileName);
-      ensureParentDir(path);
-      atomicWrite(path, renderResourceMarkdown(item.card));
+    files.set(`${categoryDir}/index.md`, renderCategoryIndex(categoryDir, group));
+    for (const item of group) files.set(`${categoryDir}/${item.fileName}`, renderResourceMarkdown(item.card));
+  }
+  return files;
+}
+
+function copyExistingAssets(root: string, tempDir: string): void {
+  const assets = join(resourcesBundleDir(root), "_assets");
+  if (!existsSync(assets)) return;
+  cpSync(assets, join(tempDir, "_assets"), { recursive: true });
+}
+
+function writeFiles(tempDir: string, files: Map<string, string>): void {
+  for (const [rel, content] of files) {
+    const path = join(tempDir, rel);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, { flag: "wx" });
+  }
+}
+
+function validateRenderedFiles(tempDir: string, files: Map<string, string>): void {
+  for (const [rel, content] of files) {
+    const path = join(tempDir, rel);
+    const actual = existsSync(path) ? readFileSync(path, "utf8") : null;
+    if (actual !== content) throw new Error(`OKF validation failed for ${rel}`);
+  }
+}
+
+function swapDirectory(target: string, tempDir: string): void {
+  const backup = `${target}.bak-${process.pid}-${++tmpCounter}`;
+  let backedUp = false;
+  try {
+    if (existsSync(target)) {
+      renameSync(target, backup);
+      backedUp = true;
+    }
+    renameSync(tempDir, target);
+    if (backedUp) rmSync(backup, { recursive: true, force: true });
+  } catch (error) {
+    try {
+      rmSync(target, { recursive: true, force: true });
+    } catch {
+      // Best-effort rollback must not hide the swap failure.
+    }
+    if (backedUp) {
+      try {
+        renameSync(backup, target);
+      } catch {
+        // If rollback fails, surface the original error.
+      }
+    }
+    throw error;
+  }
+}
+
+export function renderOkfBundle(root: string, cards: ResourceCard[]): void {
+  const bundleDir = resourcesBundleDir(root);
+  const parent = gprojDir(root);
+  const tempDir = join(parent, `.resources.tmp-${process.pid}-${++tmpCounter}`);
+  const files = renderOkfFiles(cards);
+
+  mkdirSync(parent, { recursive: true });
+  rmSync(tempDir, { recursive: true, force: true });
+  mkdirSync(tempDir, { recursive: true });
+  try {
+    copyExistingAssets(root, tempDir);
+    writeFiles(tempDir, files);
+    validateRenderedFiles(tempDir, files);
+    swapDirectory(bundleDir, tempDir);
+  } catch (error) {
+    rmSync(tempDir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export function listOkfMarkdownFiles(root: string): string[] {
+  const bundleDir = resourcesBundleDir(root);
+  const files: string[] = [];
+  function walk(dir: string): void {
+    for (const name of readdirSync(dir)) {
+      if (name === "_assets") continue;
+      const path = join(dir, name);
+      const rel = toPosix(relative(bundleDir, path));
+      if (existsSync(path) && statSync(path).isDirectory()) walk(path);
+      else files.push(rel);
     }
   }
+  if (existsSync(bundleDir)) walk(bundleDir);
+  return files.sort();
 }

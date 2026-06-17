@@ -125,9 +125,9 @@ export async function runCli(
       break;
     }
     case "resources": {
-      const { runResources } = await import("./commands/resources.js");
-      if (rest[0] === "add") {
-        io.log(await withLock(root, "resources add", () => runResources(root, rest)));
+      const { isResourcesMutation, runResources } = await import("./commands/resources.js");
+      if (isResourcesMutation(rest)) {
+        io.log(await withLock(root, `resources ${rest[0] ?? ""}`.trim(), () => runResources(root, rest)));
       } else {
         io.log(runResources(root, rest));
       }

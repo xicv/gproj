@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-export const ResourceLinkSchema = z.record(z.unknown());
+export const ResourceRelationSchema = z.enum(["defines", "references", "relates-to", "depends-on"]);
+export const ResourceLinkSchema = z.object({
+  rel: ResourceRelationSchema,
+  toId: z.string(),
+}).strict();
 
 export const ResourceCardSchema = z.object({
   id: z.string(),
@@ -15,6 +19,7 @@ export const ResourceCardSchema = z.object({
   excerpt: z.string().optional(),
   sourcePaths: z.array(z.string()).optional(),
   contentHash: z.string().optional(),
+  contentSize: z.number().int().nonnegative().optional(),
   links: z.array(ResourceLinkSchema).optional(),
 }).strict();
 
@@ -69,3 +74,4 @@ export type Run = z.infer<typeof RunSchema>;
 export type PhaseMeta = z.infer<typeof PhaseMetaSchema>;
 export type ResourceCard = z.infer<typeof ResourceCardSchema>;
 export type ResourceLink = z.infer<typeof ResourceLinkSchema>;
+export type ResourceRelation = z.infer<typeof ResourceRelationSchema>;
