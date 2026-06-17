@@ -19,6 +19,9 @@ function latestRunVerifier(root: string, phase: number): string {
     .sort((a, b) => b.index - a.index)[0];
   if (!latest) return "n/a";
   const run = RunSchema.parse(JSON.parse(readFileSync(phaseRunPath(root, phase, latest.index), "utf8")));
+  if (run.verifierStatus === "unverified") return "UNVERIFIED";
+  if (run.verifierStatus === "verified") return "PASS";
+  if (run.verifierStatus === "failed") return "FAIL";
   return run.verifierPassed ? "PASS" : "FAIL";
 }
 

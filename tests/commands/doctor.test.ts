@@ -22,7 +22,7 @@ describe("doctor", () => {
 
     expect(out).toContain("phase: 1");
     expect(out).toContain("status: deciding");
-    expect(out).toMatch(/verifier: (PASS|FAIL)/);
+    expect(out).toMatch(/verifier: (PASS|FAIL|UNVERIFIED)/);
   });
 
   it("reports not initialized when no state exists", () => {

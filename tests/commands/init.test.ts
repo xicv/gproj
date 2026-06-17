@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../src/commands/init.js";
 import { readState, readMarkdown } from "../../src/format/store.js";
+import { filePath } from "../../src/format/paths.js";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
@@ -15,6 +16,23 @@ describe("init", () => {
     expect(readMarkdown(root, "STATUS.md")).toContain("Current phase: 1");
     expect(readState(root)?.currentPhase).toBe(1);
     expect(readState(root)?.status).toBe("init");
+  });
+  it("scaffolds a deterministic verification config", () => {
+    runInit(root, "Build a coding agent");
+    const config = JSON.parse(readFileSync(filePath(root, "config.json"), "utf8"));
+
+    expect(config).toEqual({
+      testCommand: ["npx", "vitest", "run"],
+      typecheckCommand: ["npx", "tsc", "--noEmit"],
+    });
+  });
+  it("does not overwrite an existing verification config", () => {
+    mkdirSync(join(root, ".gproj"), { recursive: true });
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({ testCommand: ["npm", "test"] }));
+
+    runInit(root, "Build a coding agent");
+
+    expect(JSON.parse(readFileSync(filePath(root, "config.json"), "utf8"))).toEqual({ testCommand: ["npm", "test"] });
   });
   it("is idempotent-safe: refuses to clobber existing project", () => {
     runInit(root, "first");

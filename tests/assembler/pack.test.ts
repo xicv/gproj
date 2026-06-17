@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { appendNdjson, writeMarkdown, writeMarkdownPath, writeState } from "../../src/format/store.js";
 import { buildContextPack } from "../../src/assembler/pack.js";
 import { goalPath, phasePlanPath, phaseRunPath } from "../../src/format/paths.js";
+import { type ResourceCard } from "../../src/format/schema.js";
+import { writeAll as writeResources } from "../../src/resources/manifest.js";
 
 let root: string;
 beforeEach(() => {
@@ -87,6 +89,30 @@ describe("buildContextPack", () => {
     expect(pack.text).toContain("verified boom");
     expect(pack.text).toContain("UNTRUSTED");
     expect(pack.text).toContain("claimed tests: true");
+  });
+
+  it("injects a capped pointer-only RESOURCES section at priority 75", () => {
+    const resources: ResourceCard[] = Array.from({ length: 6 }, (_, index) => ({
+      id: `r${index}`,
+      type: "text",
+      title: `Resource ${index}`,
+      category: "docs",
+      tags: ["tag"],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      body: `FULL BODY ${index} `.repeat(50),
+      excerpt: `excerpt ${index}`,
+      sourcePaths: [`docs/r${index}.md`],
+      links: index === 0 ? [{ rel: "references", toId: "r1" }] : undefined,
+    }));
+    writeResources(root, resources);
+
+    const pack = buildContextPack(root, 1, 4000);
+
+    expect(pack.text.indexOf("## ARCHITECTURE")).toBeLessThan(pack.text.indexOf("## RESOURCES"));
+    expect(pack.text.indexOf("## RESOURCES")).toBeLessThan(pack.text.indexOf("## DECISIONS"));
+    expect(pack.text).toContain("Resource 0 (text) -> .gproj/resources/docs/r0.md #tag [references:r1] - excerpt 0");
+    expect(pack.text).not.toContain("Resource 5 (text)");
+    expect(pack.text).not.toContain("FULL BODY");
   });
 
   it("renders a TRUSTED verifier-checks block and a separate bounded DIFF section", () => {

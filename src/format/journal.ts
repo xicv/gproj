@@ -11,6 +11,10 @@ export type JournalEvent =
   "sandbox_apply" |
   "sandbox_discard" |
   "recover" |
+  "resource-added" |
+  "resources-organised" |
+  "resource-linked" |
+  "resource-removed" |
   "abort";
 
 export interface JournalEntry {

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.js";
 import { runInit } from "../src/commands/init.js";
+import { runPackage } from "../src/commands/package.js";
+import { filePath } from "../src/format/paths.js";
 import { writeMarkdown } from "../src/format/store.js";
 
 let root: string;
@@ -78,5 +80,16 @@ describe("cli", () => {
     const lines: string[] = [];
     await runCli(root, ["package"], { log: (line) => lines.push(line), error: () => undefined }, { GPROJ_MAX_TOKENS: "4000", GPROJ_PLANNER: "stub" });
     expect(lines.join("\n")).toContain("status packaged");
+  });
+
+  it("prints an explicit unverified banner after exec with no checks configured", async () => {
+    runInit(root, "Build X");
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" } }));
+    await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
+
+    const lines: string[] = [];
+    await runCli(root, ["exec"], { log: (line) => lines.push(line), error: () => undefined }, { GPROJ_EXECUTOR: "stub" });
+
+    expect(lines.join("\n")).toContain("UNVERIFIED RUN (no test/typecheck configured)");
   });
 });

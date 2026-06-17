@@ -69,6 +69,15 @@ describe("project config", () => {
     expect(() => loadConfig(root)).toThrow();
   });
 
+  it("rejects empty verification commands", () => {
+    mkdirSync(join(root, ".gproj"), { recursive: true });
+    writeFileSync(join(root, ".gproj", "config.json"), JSON.stringify({
+      testCommand: [],
+    }));
+
+    expect(() => loadConfig(root)).toThrow();
+  });
+
   it("reports malformed JSON with the config path", () => {
     mkdirSync(join(root, ".gproj"), { recursive: true });
     writeFileSync(join(root, ".gproj", "config.json"), "{");

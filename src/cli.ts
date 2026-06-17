@@ -80,12 +80,13 @@ export async function runCli(
       break;
     }
     case "exec": {
-      const { runExec } = await import("./commands/exec.js");
-      const { id, status } = await withLock(root, "exec", async () => {
+      const { runExec, renderRunVerificationWarning } = await import("./commands/exec.js");
+      const { id, status, warning } = await withLock(root, "exec", async () => {
         const runId = await runExec(root, { executorName: executorName(root, env) });
-        return { id: runId, status: renderStatus(root) };
+        return { id: runId, status: renderStatus(root), warning: renderRunVerificationWarning(root, runId) };
       });
       io.log(`run recorded: ${id}`);
+      if (warning) io.log(warning);
       io.log(status);
       break;
     }
@@ -123,8 +124,17 @@ export async function runCli(
       io.log(await runSync(root, rest, { spawnFn: deps.cloudSyncSpawn }));
       break;
     }
+    case "resources": {
+      const { isResourcesMutation, runResources } = await import("./commands/resources.js");
+      if (isResourcesMutation(rest)) {
+        io.log(await withLock(root, `resources ${rest[0] ?? ""}`.trim(), () => runResources(root, rest)));
+      } else {
+        io.log(runResources(root, rest));
+      }
+      break;
+    }
     default:
-      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance, sync`);
+      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance, sync, resources`);
       throw new CliExit(2);
   }
 }
