@@ -62,18 +62,31 @@ function frontmatter(card: ResourceCard): string {
   return lines.join("\n");
 }
 
-function relatedSection(card: ResourceCard): string {
+function renderedById(cards: RenderedCard[]): Map<string, RenderedCard> {
+  return new Map(cards.map((card) => [card.card.id, card]));
+}
+
+function relatedSection(card: ResourceCard, targets: Map<string, RenderedCard>): string {
   const links = [...(card.links ?? [])].sort((a, b) => a.rel.localeCompare(b.rel) || a.toId.localeCompare(b.toId));
   if (links.length === 0) return "## Related\n";
-  return ["## Related", "", ...links.map((link) => `- ${link.rel}: ${link.toId}`)].join("\n");
+  const rendered = links.flatMap((link) => {
+    const target = targets.get(link.toId);
+    return target ? [`- [${target.card.title}](../${target.categoryDir}/${target.fileName})`] : [];
+  });
+  if (rendered.length === 0) return "## Related\n";
+  return ["## Related", "", ...rendered].join("\n");
 }
 
 export function renderResourceMarkdown(card: ResourceCard): string {
+  return renderResourceMarkdownWithTargets(card, renderedById(renderedCards([card])));
+}
+
+function renderResourceMarkdownWithTargets(card: ResourceCard, targets: Map<string, RenderedCard>): string {
   const parsed = ResourceCardSchema.parse(card);
   const body = parsed.body ?? parsed.excerpt ?? "";
   const sections = [frontmatter(parsed)];
   if (body.trim().length > 0) sections.push(body.trimEnd());
-  sections.push(relatedSection(parsed));
+  sections.push(relatedSection(parsed, targets));
   return `${sections.join("\n\n")}\n`;
 }
 
@@ -133,6 +146,7 @@ function toPosix(path: string): string {
 
 export function renderOkfFiles(cards: ResourceCard[]): Map<string, string> {
   const rendered = renderedCards(cards);
+  const targets = renderedById(rendered);
   const files = new Map<string, string>();
   files.set("index.md", renderRootIndex(rendered));
 
@@ -145,7 +159,7 @@ export function renderOkfFiles(cards: ResourceCard[]): Map<string, string> {
 
   for (const [categoryDir, group] of byCategory) {
     files.set(`${categoryDir}/index.md`, renderCategoryIndex(categoryDir, group));
-    for (const item of group) files.set(`${categoryDir}/${item.fileName}`, renderResourceMarkdown(item.card));
+    for (const item of group) files.set(`${categoryDir}/${item.fileName}`, renderResourceMarkdownWithTargets(item.card, targets));
   }
   return files;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resourcesManifestPath } from "../../src/format/paths.js";
@@ -29,6 +29,50 @@ describe("resources organise", () => {
 
     expect(result.imports.map((item) => item.path)).toEqual(["image.bin", "note.md"]);
     expect(existsSync(resourcesManifestPath(root))).toBe(false);
+  });
+
+  it("derives categories from scan-root subdirectories with root fallback", () => {
+    mkdirSync(join(root, "docs", "dji-cloud-api"), { recursive: true });
+    mkdirSync(join(root, "docs", "firmware"), { recursive: true });
+    writeFileSync(join(root, "docs", "dji-cloud-api", "spec.md"), "# Spec\n");
+    writeFileSync(join(root, "docs", "firmware", "payload.bin"), Buffer.from([1, 2, 3]));
+    writeFileSync(join(root, "docs", "readme.md"), "# Readme\n");
+
+    organiseResources(root, "docs", { now: new Date("2026-06-17T00:00:00.000Z") });
+
+    const byTitle = new Map(getAll(root).map((card) => [card.title, card]));
+    expect(byTitle.get("spec")?.category).toBe("dji-cloud-api");
+    expect(byTitle.get("payload")?.category).toBe("firmware");
+    expect(byTitle.get("readme")?.category).toBe("root");
+    expect(byTitle.get("payload")?.category).not.toBe("assets");
+    expect(byTitle.get("readme")?.category).not.toBe("documents");
+  });
+
+  it("applies organise category overrides to all imported cards", () => {
+    mkdirSync(join(root, "docs", "dji-cloud-api"), { recursive: true });
+    writeFileSync(join(root, "docs", "dji-cloud-api", "spec.md"), "# Spec\n");
+    writeFileSync(join(root, "docs", "readme.md"), "# Readme\n");
+
+    organiseResources(root, "docs", {
+      category: "manual",
+      now: new Date("2026-06-17T00:00:00.000Z"),
+    });
+
+    expect(new Set(getAll(root).map((card) => card.category))).toEqual(new Set(["manual"]));
+  });
+
+  it("writes deterministic manifests across repeated organise runs", () => {
+    mkdirSync(join(root, "docs", "b-topic"), { recursive: true });
+    mkdirSync(join(root, "docs", "a-topic"), { recursive: true });
+    writeFileSync(join(root, "docs", "b-topic", "b.md"), "# B\n");
+    writeFileSync(join(root, "docs", "a-topic", "a.md"), "# A\n");
+
+    organiseResources(root, "docs", { now: new Date("2026-06-17T00:00:00.000Z") });
+    const first = readFileSync(resourcesManifestPath(root), "utf8");
+    organiseResources(root, "docs", { now: new Date("2026-06-17T00:00:00.000Z") });
+    const second = readFileSync(resourcesManifestPath(root), "utf8");
+
+    expect(second).toBe(first);
   });
 
   it("deduplicates identical same-run content into one manifest card", () => {

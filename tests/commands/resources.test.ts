@@ -38,6 +38,50 @@ describe("resources command", () => {
     expect(existsSync(join(resourcesBundleDir(root), "documents", `${card.id}.md`))).toBe(true);
   });
 
+  it("applies metadata flags when adding a local resource", async () => {
+    writeFileSync(join(root, "note.md"), "# Note\nbody\n");
+
+    await runResources([
+      "add",
+      "--category",
+      "dji-cloud-api",
+      "--title",
+      "Cloud API Spec",
+      "--type",
+      "spec",
+      "--tags",
+      " Alpha, beta,alpha ",
+      "--link",
+      "references:target-1",
+      "--link",
+      "depends-on:target-2",
+      "note.md",
+    ]);
+
+    const [card] = getAll(root);
+    expect(card).toMatchObject({
+      category: "dji-cloud-api",
+      title: "Cloud API Spec",
+      type: "spec",
+      tags: ["alpha", "beta"],
+      links: [
+        { rel: "references", toId: "target-1" },
+        { rel: "depends-on", toId: "target-2" },
+      ],
+    });
+    expect(card.id).toMatch(/^cloud-api-spec-/);
+    const markdown = readFileSync(join(resourcesBundleDir(root), "dji-cloud-api", `${card.id}.md`), "utf8");
+    expect(markdown).toContain("type: \"spec\"");
+    expect(markdown).toContain("category: \"dji-cloud-api\"");
+  });
+
+  it("rejects malformed add link flags", async () => {
+    writeFileSync(join(root, "note.md"), "# Note\nbody\n");
+
+    await expect(runResources(["add", "--link", "references", "note.md"])).rejects.toThrow("invalid --link value");
+    await expect(runResources(["add", "--link", "invalid:target", "note.md"])).rejects.toThrow("invalid relation type: invalid");
+  });
+
   it("filters list output by category", async () => {
     writeFileSync(join(root, "note.md"), "# Note\nbody\n");
     await runResources(["add", "note.md"]);
@@ -68,7 +112,7 @@ describe("resources command", () => {
 
     const linkOutput = await runResources(["link", from?.id ?? "", "references", to?.id ?? ""]);
     expect(linkOutput).toContain("resource linked:");
-    expect(readFileSync(join(resourcesBundleDir(root), "documents", `${from?.id}.md`), "utf8")).toContain("- references:");
+    expect(readFileSync(join(resourcesBundleDir(root), "root", `${from?.id}.md`), "utf8")).toContain(`- [b](../root/${to?.id}.md)`);
     expect(await runResources(["doctor"])).toBe("resources doctor: ok");
   });
 

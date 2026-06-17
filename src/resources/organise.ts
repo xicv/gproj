@@ -40,6 +40,7 @@ export interface OrganiseResult {
 export interface OrganiseOptions {
   dryRun?: boolean;
   deleteDuplicates?: boolean;
+  category?: string;
   now?: Date;
   beforeDelete?: (candidate: DeleteCandidate) => void;
 }
@@ -108,6 +109,11 @@ function mapByHash(cards: ResourceCard[]): Map<string, ResourceCard> {
   return byHash;
 }
 
+function categoryFromScanRoot(scanRoot: string, absolutePath: string): string {
+  const parts = toPosix(relative(scanRoot, absolutePath)).split("/").filter(Boolean);
+  return parts.length > 1 ? parts[0] : "root";
+}
+
 function sameStat(a: Stats, b: Stats): boolean {
   return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs;
 }
@@ -133,6 +139,7 @@ function safeDelete(candidate: DeleteCandidate, beforeDelete?: (candidate: Delet
 export function organiseResources(root: string, inputDir = ".", options: OrganiseOptions = {}): OrganiseResult {
   const dryRun = options.dryRun === true;
   const deleteRequested = options.deleteDuplicates === true;
+  const scanRoot = resolve(root, inputDir);
   const files = scanResourceFiles(root, inputDir);
   const preRunCards = getAll(root);
   const preRunByHash = mapByHash(preRunCards);
@@ -172,7 +179,10 @@ export function organiseResources(root: string, inputDir = ".", options: Organis
       continue;
     }
 
-    const card = createResourceCard(root, file.absolutePath, options.now ?? new Date(), { writeAsset: !dryRun });
+    const card = createResourceCard(root, file.absolutePath, options.now ?? new Date(), {
+      writeAsset: !dryRun,
+      category: options.category ?? categoryFromScanRoot(scanRoot, file.absolutePath),
+    });
     cards.push(card);
     if (card.contentHash) byHash.set(card.contentHash, card);
     imports.push({ path: file.sourcePath, id: card.id });

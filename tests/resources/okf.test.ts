@@ -36,8 +36,8 @@ describe("OKF resource projection", () => {
       {
         id: "r2",
         type: "text",
-        title: "Target",
-        category: "docs",
+        title: "Cloud API Spec",
+        category: "dji-cloud-api",
         tags: [],
         timestamp: "2026-06-17T00:00:00.000Z",
         body: "Target body",
@@ -50,7 +50,7 @@ describe("OKF resource projection", () => {
         tags: ["alpha"],
         timestamp: "2026-06-17T00:00:00.000Z",
         body: "Source body",
-        links: [{ rel: "depends-on", toId: "r2" }],
+        links: [{ rel: "references", toId: "r2" }],
       },
     ];
 
@@ -58,8 +58,26 @@ describe("OKF resource projection", () => {
     const second = renderOkfFiles([...cards].reverse());
 
     expect([...first.entries()]).toEqual([...second.entries()]);
-    expect(first.get("docs/r1.md")).toContain("rel: \"depends-on\"");
-    expect(first.get("docs/r1.md")).toContain("- depends-on: r2");
+    expect(first.get("docs/r1.md")).toContain("rel: \"references\"");
+    expect(first.get("docs/r1.md")).toContain("- [Cloud API Spec](../dji-cloud-api/r2.md)");
+    expect(first.get("docs/r1.md")).not.toContain("- references: r2");
+  });
+
+  it("omits missing related targets without failing projection", () => {
+    const files = renderOkfFiles([{
+      id: "r1",
+      type: "text",
+      title: "Source",
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      body: "Source body",
+      links: [{ rel: "references", toId: "missing" }],
+    }]);
+
+    const markdown = files.get("docs/r1.md") ?? "";
+    const related = markdown.slice(markdown.indexOf("## Related")).trim();
+    expect(related).toBe("## Related");
   });
 
   it("swaps stale card files out while preserving existing assets", () => {

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { resourceAssetDir } from "../format/paths.js";
-import { type ResourceCard } from "../format/schema.js";
+import { type ResourceCard, type ResourceLink } from "../format/schema.js";
 
 export const textExtensions = new Set([".md", ".markdown", ".mdx", ".txt", ".text"]);
 const excerptLimit = 240;
@@ -107,6 +107,11 @@ export function identityForFile(path: string): FileIdentity {
 
 export interface CreateResourceCardOptions {
   writeAsset?: boolean;
+  title?: string;
+  category?: string;
+  type?: string;
+  tags?: string[];
+  links?: ResourceLink[];
 }
 
 export function createResourceCard(
@@ -117,24 +122,27 @@ export function createResourceCard(
 ): ResourceCard {
   const buffer = readFileSync(absolutePath);
   const ext = extname(absolutePath).toLowerCase();
-  const title = titleFromPath(absolutePath);
+  const title = options.title ?? titleFromPath(absolutePath);
   const isText = textExtensions.has(ext);
+  const tags = options.tags ?? [];
+  const links = options.links && options.links.length > 0 ? options.links : undefined;
 
   if (isText) {
     const body = normalizeText(buffer);
     const contentHash = sha256(body);
     return {
       id: resourceId(title, contentHash),
-      type: "text",
+      type: options.type ?? "text",
       title,
-      category: "documents",
-      tags: [],
+      category: options.category ?? "documents",
+      tags,
       timestamp: now.toISOString(),
       body,
       excerpt: excerpt(body),
       sourcePaths: [sourcePath(root, absolutePath)],
       contentHash,
       contentSize: Buffer.byteLength(body, "utf8"),
+      ...(links ? { links } : {}),
     };
   }
 
@@ -145,22 +153,23 @@ export function createResourceCard(
     : writeAsset(root, id, ext, contentHash, buffer);
   return {
     id,
-    type: "binary",
+    type: options.type ?? "binary",
     title,
-    category: "assets",
-    tags: [],
+    category: options.category ?? "assets",
+    tags,
     timestamp: now.toISOString(),
     resource,
     sourcePaths: [sourcePath(root, absolutePath)],
     contentHash,
     contentSize: buffer.length,
+    ...(links ? { links } : {}),
   };
 }
 
-export function importResource(root: string, inputPath: string, now: Date = new Date()): ResourceCard {
+export function importResource(root: string, inputPath: string, now: Date = new Date(), options: CreateResourceCardOptions = {}): ResourceCard {
   assertLocalFile(inputPath);
   const absolutePath = resolve(root, inputPath);
   if (!existsSync(absolutePath)) throw new Error(`resource file not found: ${inputPath}`);
   if (!statSync(absolutePath).isFile()) throw new Error(`resource path is not a file: ${inputPath}`);
-  return createResourceCard(root, absolutePath, now);
+  return createResourceCard(root, absolutePath, now, options);
 }

@@ -3,7 +3,12 @@ import { isAbsolute, join, normalize, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { appendJournal } from "../format/journal.js";
 import { resourcesBundleDir } from "../format/paths.js";
-import { ResourceCardSchema, type ResourceCard } from "../format/schema.js";
+import {
+  ResourceCardSchema,
+  ResourceRelationSchema,
+  type ResourceCard,
+  type ResourceLink,
+} from "../format/schema.js";
 import { renderResourceDoctor } from "../resources/doctor.js";
 import { importResource } from "../resources/import.js";
 import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manifest.js";
@@ -11,7 +16,7 @@ import { organiseResources, renderOrganiseResult } from "../resources/organise.j
 import { renderOkfBundle } from "../resources/okf.js";
 
 function usage(): string {
-  return "usage: gproj resources add <path> | organise [--dry-run] [--delete] [dir] | list [--category <category>] | show <id> | find <query> | link <fromId> <rel> <toId> | rm <id> | doctor";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | link <fromId> <rel> <toId> | rm <id> | doctor";
 }
 
 function parseCategory(args: string[]): string | undefined {
@@ -25,9 +30,81 @@ function renderSummary(card: ResourceCard): string {
   return `${card.id}\t${card.category}\t${card.type}\t${card.title}`;
 }
 
+interface AddArgs {
+  path: string;
+  category?: string;
+  title?: string;
+  type?: string;
+  tags?: string[];
+  links?: ResourceLink[];
+}
+
+function normalizeTags(value: string): string[] {
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.split(",")) {
+    const tag = raw.trim().toLowerCase();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
+}
+
+function parseLink(value: string): ResourceLink {
+  const separator = value.indexOf(":");
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new Error(`invalid --link value: ${value}; expected <rel>:<toId>`);
+  }
+  const rel = value.slice(0, separator).trim();
+  const toId = value.slice(separator + 1).trim();
+  if (!rel || !toId) throw new Error(`invalid --link value: ${value}; expected <rel>:<toId>`);
+  const parsed = ResourceRelationSchema.safeParse(rel);
+  if (!parsed.success) throw new Error(`invalid relation type: ${rel}`);
+  return { rel: parsed.data, toId };
+}
+
+function stringValues(value: string | boolean | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return [value];
+  throw new Error(usage());
+}
+
+function parseAddArgs(args: string[]): AddArgs {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      category: { type: "string" },
+      title: { type: "string" },
+      type: { type: "string" },
+      tags: { type: "string" },
+      link: { type: "string", multiple: true },
+    },
+  });
+  if (parsed.positionals.length !== 1) throw new Error(usage());
+  const tags = typeof parsed.values.tags === "string" ? normalizeTags(parsed.values.tags) : undefined;
+  const links = stringValues(parsed.values.link).map(parseLink);
+  return {
+    path: parsed.positionals[0],
+    category: typeof parsed.values.category === "string" ? parsed.values.category : undefined,
+    title: typeof parsed.values.title === "string" ? parsed.values.title : undefined,
+    type: typeof parsed.values.type === "string" ? parsed.values.type : undefined,
+    tags,
+    links: links.length > 0 ? links : undefined,
+  };
+}
+
 function addResource(root: string, args: string[]): string {
-  if (args.length !== 1) throw new Error(usage());
-  const card = add(root, importResource(root, args[0]));
+  const options = parseAddArgs(args);
+  const card = add(root, importResource(root, options.path, new Date(), {
+    category: options.category,
+    title: options.title,
+    type: options.type,
+    tags: options.tags,
+    links: options.links,
+  }));
   renderOkfBundle(root, getAll(root));
   appendJournal(root, { phase: 0, event: "resource-added", status: "added", detail: card.id });
   return `resource added: ${card.id}`;
@@ -68,13 +145,14 @@ function findResources(root: string, args: string[]): string {
   return matches.map(renderSummary).join("\n");
 }
 
-function parseOrganiseArgs(args: string[]): { dir: string; dryRun: boolean; deleteDuplicates: boolean } {
+function parseOrganiseArgs(args: string[]): { dir: string; dryRun: boolean; deleteDuplicates: boolean; category?: string } {
   const parsed = parseArgs({
     args,
     allowPositionals: true,
     options: {
       "dry-run": { type: "boolean", default: false },
       delete: { type: "boolean", default: false },
+      category: { type: "string" },
     },
   });
   if (parsed.positionals.length > 1) throw new Error(usage());
@@ -82,6 +160,7 @@ function parseOrganiseArgs(args: string[]): { dir: string; dryRun: boolean; dele
     dir: parsed.positionals[0] ?? ".",
     dryRun: parsed.values["dry-run"] === true,
     deleteDuplicates: parsed.values.delete === true,
+    category: typeof parsed.values.category === "string" ? parsed.values.category : undefined,
   };
 }
 
@@ -90,6 +169,7 @@ function organise(root: string, args: string[]): string {
   const result = organiseResources(root, options.dir, {
     dryRun: options.dryRun,
     deleteDuplicates: options.deleteDuplicates,
+    category: options.category,
   });
   if (!options.dryRun) appendJournal(root, { phase: 0, event: "resources-organised", status: "ok", detail: `imports=${result.imports.length}; duplicates=${result.duplicates.length}` });
   return renderOrganiseResult(result);
