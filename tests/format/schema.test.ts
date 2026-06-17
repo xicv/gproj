@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { StateSchema, DecisionSchema, RunSchema } from "../../src/format/schema.js";
+import { StateSchema, DecisionSchema, RunSchema, ResourceCardSchema } from "../../src/format/schema.js";
 
 describe("schemas", () => {
   it("parses a valid state", () => {
@@ -19,5 +19,27 @@ describe("schemas", () => {
     const r = RunSchema.parse({ id: "r1", phase: 1, promptHash: "abc", changedFiles: ["a.ts"], diffStat: "+1 -0", testsPassed: true, failures: [] });
     expect(r.testsPassed).toBe(true);
     expect(r.packageId).toBe(0);
+  });
+  it("parses a valid resource card", () => {
+    const card = ResourceCardSchema.parse({
+      id: "r1",
+      type: "text",
+      title: "Resource",
+      category: "documents",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      body: "body",
+      contentHash: "abc",
+    });
+    expect(card.id).toBe("r1");
+  });
+  it("rejects a resource card missing required fields", () => {
+    expect(() => ResourceCardSchema.parse({
+      id: "r1",
+      type: "text",
+      title: "Resource",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+    })).toThrow();
   });
 });
