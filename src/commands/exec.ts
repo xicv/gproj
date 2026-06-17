@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutorTarget } from "../backends/executor.js";
-import { loadConfig } from "../config/projectConfig.js";
+import { loadConfig, projectConfigExists } from "../config/projectConfig.js";
 import { appendJournal } from "../format/journal.js";
 import { readState, writeState, readMarkdownPath } from "../format/store.js";
-import { phaseDir, phaseExecPromptPath, phasePlanPath } from "../format/paths.js";
+import { phaseDir, phaseExecPromptPath, phasePlanPath, phaseRunPath } from "../format/paths.js";
+import { RunSchema } from "../format/schema.js";
 import { createWorktree } from "../sandbox/worktree.js";
-import { captureHead, captureStagedEvidence, gitEvidence } from "../verifier/git.js";
-import { runChecks } from "../verifier/tests.js";
+import { captureHead, captureStagedEvidence, gitEvidence, stageForEvidence } from "../verifier/git.js";
+import { runChecks, UNVERIFIED_RUN_BANNER } from "../verifier/tests.js";
 import { ingestRun } from "./ingestRun.js";
 
 export interface ExecOpts { executorName: string; }
@@ -30,6 +31,7 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     throw new Error(`no packaged phase to execute; run \`gproj package\` first (status: ${state.status})`);
   }
   const phase = state.currentPhase;
+  const hasConfig = projectConfigExists(root);
   const cfg = loadConfig(root);
   let executorCwd = root;
   let activeWorktree: string | null = null;
@@ -59,20 +61,31 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
   const target = getExecutorTarget(opts.executorName);
   const baseHead = captureHead(executorCwd);
   const result = await target.run({ root: executorCwd, phase, prompt });
+  let stagedForEvidence = false;
+  if (baseHead !== null) {
+    const staged = stageForEvidence(executorCwd);
+    if (!staged.staged) throw new Error(`cannot stage git evidence: ${staged.detail}`);
+    stagedForEvidence = true;
+  }
   const git = gitEvidence(executorCwd, baseHead);
-  // In a sandbox worktree, capture diffStat + a bounded diff the way decide will
-  // actually apply (staged, includes new files). gitEvidence's plain `git diff`
-  // omits untracked files, so without this the evidence under-reports new files.
+  // Capture diffStat + a bounded diff after staging so new files are visible in
+  // review evidence. Non-git roots remain supported and simply have no diff.
   let diffStat = git.diffStat;
   let diff = "";
-  if (cfg.sandbox.mode === "worktree") {
-    const staged = captureStagedEvidence(executorCwd);
+  if (stagedForEvidence) {
+    const staged = captureStagedEvidence(executorCwd, undefined, { alreadyStaged: true });
     if (staged) {
       diffStat = staged.diffStat;
       diff = staged.diff;
+    } else {
+      throw new Error("cannot capture staged git evidence after staging completed");
     }
   }
-  const verifier = runChecks(executorCwd, { testCommand: cfg.testCommand, typecheckCommand: cfg.typecheckCommand });
+  const verifier = runChecks(executorCwd, {
+    testCommand: cfg.testCommand,
+    typecheckCommand: cfg.typecheckCommand,
+    configExists: hasConfig,
+  });
   const id = `p${phase}-r${nextRunIndex(root, phase)}`;
   ingestRun(root, {
     id,
@@ -85,6 +98,7 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
     diff,
     testsPassed: verifier.verifierPassed,
     failures: verifier.verifierFailures,
+    verifierStatus: verifier.verifierStatus,
     verifierPassed: verifier.verifierPassed,
     verifierFailures: verifier.verifierFailures,
     verifierChecks: verifier.checks.map((c) => ({ command: c.command.join(" "), passed: c.passed, exitCode: c.exitCode })),
@@ -99,4 +113,13 @@ export async function runExec(root: string, opts: ExecOpts): Promise<string> {
   writeState(root, { ...state, status: "reviewing", activeWorktree });
   appendJournal(root, { phase, event: "exec_done", status: "reviewing", runId: id, detail });
   return id;
+}
+
+export function renderRunVerificationWarning(root: string, id: string): string | null {
+  const match = id.match(/^p(\d+)-r(\d+)$/);
+  if (!match) return null;
+  const run = RunSchema.parse(JSON.parse(readFileSync(phaseRunPath(root, Number(match[1]), Number(match[2])), "utf8")));
+  if (run.verifierStatus !== "unverified") return null;
+  const detail = run.verifierFailures.length ? `\nwarning: ${run.verifierFailures.join("; ")}` : "";
+  return `${UNVERIFIED_RUN_BANNER}${detail}`;
 }

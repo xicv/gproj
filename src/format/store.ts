@@ -217,6 +217,9 @@ function latestRunForStatus(root: string, phase: number): Run | null {
 
 function runVerdict(run: Run | null): string {
   if (!run) return "no run";
+  if (run.verifierStatus === "unverified") return "UNVERIFIED";
+  if (run.verifierStatus === "verified") return "PASS";
+  if (run.verifierStatus === "failed") return "FAIL";
   return run.verifierPassed ? "PASS" : "FAIL";
 }
 

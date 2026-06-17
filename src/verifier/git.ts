@@ -62,6 +62,15 @@ export function gitEvidence(root: string, baseHead: string | null, run: RunFn = 
 const DIFF_PATHSPEC = [".", ":(exclude)node_modules", ":(exclude)node_modules/**"];
 const MAX_DIFF_CHARS = 8000;
 
+export function stageForEvidence(
+  root: string,
+  run: RunFn = defaultRun,
+): { staged: true } | { staged: false; detail: string } {
+  const add = run(["git", "add", "-A", "--", ...DIFF_PATHSPEC], root);
+  if (add.code !== 0) return { staged: false, detail: add.stderr || add.stdout || "git add -A failed" };
+  return { staged: true };
+}
+
 // Capture diffStat + a bounded full diff the way applyWorktree actually applies
 // changes: `git add -A` then `git diff --cached HEAD`. Plain `git diff --stat`
 // (used by gitEvidence) omits UNTRACKED new files, so a feature that adds files
@@ -73,9 +82,12 @@ const MAX_DIFF_CHARS = 8000;
 export function captureStagedEvidence(
   root: string,
   run: RunFn = defaultRun,
+  opts: { alreadyStaged?: boolean; raw?: boolean } = {},
 ): { diffStat: string; diff: string } | null {
-  const add = run(["git", "add", "-A", "--", ...DIFF_PATHSPEC], root);
-  if (add.code !== 0) return null;
+  if (!opts.alreadyStaged && !opts.raw) {
+    const staged = stageForEvidence(root, run);
+    if (!staged.staged) return null;
+  }
   const diffStat = run(["git", "diff", "--cached", "--stat", "HEAD", "--", ...DIFF_PATHSPEC], root).stdout.trim();
   const full = run(["git", "diff", "--cached", "HEAD", "--", ...DIFF_PATHSPEC], root).stdout;
   const diff = full.length > MAX_DIFF_CHARS

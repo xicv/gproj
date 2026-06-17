@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { captureHead, captureStagedEvidence, gitEvidence, type RunFn } from "../../src/verifier/git.js";
+import { captureHead, captureStagedEvidence, gitEvidence, stageForEvidence, type RunFn } from "../../src/verifier/git.js";
 
 describe("git verifier", () => {
   it("captures the trimmed head sha", () => {
@@ -53,6 +53,27 @@ describe("git verifier", () => {
     expect(result?.diffStat).toContain("src/new.ts");
     expect(result?.diff).toContain("new file mode");
     expect(calls.some((c) => c.startsWith("git add -A"))).toBe(true);
+  });
+
+  it("allows exec-style explicit staging before evidence capture", () => {
+    const calls: string[] = [];
+    const run: RunFn = (command) => {
+      const joined = command.join(" ");
+      calls.push(joined);
+      if (joined.startsWith("git add -A")) return { stdout: "", stderr: "", code: 0 };
+      if (joined === "git rev-parse HEAD") return { stdout: "post\n", stderr: "", code: 0 };
+      if (joined === "git status --porcelain=v1") return { stdout: "A  src/new.ts\n", stderr: "", code: 0 };
+      if (joined === "git diff --stat") return { stdout: "", stderr: "", code: 0 };
+      if (joined.includes("diff --cached --stat HEAD")) return { stdout: " src/new.ts | 1 +\n", stderr: "", code: 0 };
+      if (joined.includes("diff --cached HEAD")) return { stdout: "diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n", stderr: "", code: 0 };
+      return { stdout: "", stderr: "unexpected", code: 1 };
+    };
+
+    expect(stageForEvidence("/wt", run)).toEqual({ staged: true });
+    expect(gitEvidence("/wt", "base", run).changedFiles).toEqual([{ status: "A", path: "src/new.ts" }]);
+    expect(captureStagedEvidence("/wt", run, { alreadyStaged: true })?.diffStat).toContain("src/new.ts");
+    expect(calls[0]).toContain("git add -A");
+    expect(calls.filter((call) => call.startsWith("git add -A")).length).toBe(1);
   });
 
   it("captureStagedEvidence bounds an oversized diff", () => {

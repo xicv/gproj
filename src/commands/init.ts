@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
+import { ensureDefaultConfig } from "../config/projectConfig.js";
 import { goalPath, statePath } from "../format/paths.js";
 import { writeState, writeMarkdown, writeMarkdownPath } from "../format/store.js";
 
@@ -7,6 +8,7 @@ export function runInit(root: string, goal: string): void {
   if (existsSync(statePath(root))) throw new Error("gproj already initialized in this directory");
   writeMarkdownPath(goalPath(root), `# Goal\n\n${goal}\n\n## Constraints\n\n(define)\n\n## Acceptance\n\n(define)\n`);
   writeMarkdown(root, "acceptance.md", "# Acceptance checklist\n\n- [ ] (define)\n");
+  ensureDefaultConfig(root);
   writeState(root, { currentPhase: 1, status: "init", phases: [], activeWorktree: null, packageId: 0 });
   ignoreGprojDir(root);
 }

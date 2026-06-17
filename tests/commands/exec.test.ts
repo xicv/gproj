@@ -59,24 +59,34 @@ describe("exec", () => {
   });
 
   it("persists failing verifier evidence even when the executor claims tests passed", async () => {
-    writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" }, testCommand: ["node", "-e", "process.exit(1)"] }));
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({
+      sandbox: { mode: "none" },
+      typecheckCommand: ["node", "-e", ""],
+      testCommand: ["node", "-e", "process.exit(1)"],
+    }));
 
     const runId = await runExec(root, { executorName: "stub" });
     const run = JSON.parse(readFileSync(runPathFromId(root, runId), "utf8"));
 
     expect(run.testsPassed).toBe(false);
+    expect(run.verifierStatus).toBe("failed");
     expect(run.verifierPassed).toBe(false);
     expect(run.verifierFailures.length).toBeGreaterThan(0);
     expect(run.executorClaims.testsPassed).toBe(true);
   });
 
   it("persists passing verifier evidence", async () => {
-    writeFileSync(filePath(root, "config.json"), JSON.stringify({ sandbox: { mode: "none" }, testCommand: ["node", "-e", ""] }));
+    writeFileSync(filePath(root, "config.json"), JSON.stringify({
+      sandbox: { mode: "none" },
+      typecheckCommand: ["node", "-e", ""],
+      testCommand: ["node", "-e", ""],
+    }));
 
     const runId = await runExec(root, { executorName: "stub" });
     const run = JSON.parse(readFileSync(runPathFromId(root, runId), "utf8"));
 
     expect(run.testsPassed).toBe(true);
+    expect(run.verifierStatus).toBe("verified");
     expect(run.verifierPassed).toBe(true);
     expect(run.verifierFailures).toEqual([]);
   });
@@ -86,6 +96,7 @@ describe("exec", () => {
     const run = JSON.parse(readFileSync(runPathFromId(root, runId), "utf8"));
 
     expect(run.testsPassed).toBe(false);
+    expect(run.verifierStatus).toBe("unverified");
     expect(run.verifierPassed).toBe(false);
     expect(run.verifierFailures.join("\n")).toContain("unverified");
   });
@@ -130,6 +141,7 @@ describe("exec", () => {
     runInit(sandboxRoot, "Build X");
     writeFileSync(filePath(sandboxRoot, "config.json"), JSON.stringify({
       sandbox: { mode: "worktree" },
+      typecheckCommand: ["node", "-e", ""],
       testCommand: ["node", "-e", "process.exit(require('node:fs').existsSync('sandbox-output.txt') ? 0 : 1)"],
     }));
     await runPackage(sandboxRoot, { plannerName: "stub", maxTokens: 4000 });
@@ -149,6 +161,7 @@ describe("exec", () => {
     expect(state?.activeWorktree).toEqual(expect.any(String));
     expect(existsSync(join(state?.activeWorktree ?? "", "sandbox-output.txt"))).toBe(true);
     expect(run.changedFiles).toEqual(["sandbox-output.txt"]);
+    expect(run.verifierStatus).toBe("verified");
     expect(run.verifierPassed).toBe(true);
     // review-evidence fixes: trusted checks recorded + the new file shows up in
     // the staged diff/diffStat (plain `git diff` would omit the untracked file).
@@ -156,6 +169,35 @@ describe("exec", () => {
     expect(run.verifierChecks.every((c: { command: string; passed: boolean }) => typeof c.command === "string")).toBe(true);
     expect(run.diff).toContain("sandbox-output.txt");
     expect(run.diffStat).toContain("sandbox-output.txt");
+  });
+
+  it("captures new files in diff evidence when executing in the repo worktree", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "gproj-"));
+    initGitRepo(repoRoot);
+    writeFileSync(join(repoRoot, ".gitignore"), ".gproj/\nnode_modules\n");
+    expect(git(["add", ".gitignore"], repoRoot).code).toBe(0);
+    expect(git(["commit", "-m", "ignore gproj"], repoRoot).code).toBe(0);
+    runInit(repoRoot, "Build X");
+    writeFileSync(filePath(repoRoot, "config.json"), JSON.stringify({
+      sandbox: { mode: "none" },
+      typecheckCommand: ["node", "-e", ""],
+      testCommand: ["node", "-e", ""],
+    }));
+    await runPackage(repoRoot, { plannerName: "stub", maxTokens: 4000 });
+    registerExecutorTarget({
+      name: "stub-root-write",
+      async run(req) {
+        writeFileSync(join(req.root, "created.txt"), "created\n");
+        return { changedFiles: ["created.txt"], diffStat: "+1 -0", testsPassed: true, failures: [], raw: "wrote file" };
+      },
+    });
+
+    const runId = await runExec(repoRoot, { executorName: "stub-root-write" });
+    const run = JSON.parse(readFileSync(runPathFromId(repoRoot, runId), "utf8"));
+
+    expect(run.changedFiles).toEqual(["created.txt"]);
+    expect(run.diffStat).toContain("created.txt");
+    expect(run.diff).toContain("new file mode");
   });
 
   it("embeds the phase plan into the executor prompt so it is self-contained", async () => {

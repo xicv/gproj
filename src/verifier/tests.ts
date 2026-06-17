@@ -33,25 +33,25 @@ export interface CheckResult {
 }
 
 export interface VerifierResult {
+  verifierStatus: "verified" | "failed" | "unverified";
   verifierPassed: boolean;
   checks: CheckResult[];
   verifierFailures: string[];
 }
 
+export const UNVERIFIED_RUN_BANNER = "UNVERIFIED RUN (no test/typecheck configured)";
+
 export function runChecks(
   root: string,
-  cfg: { testCommand?: string[]; typecheckCommand?: string[] },
+  cfg: { testCommand?: string[]; typecheckCommand?: string[]; configExists?: boolean },
   run: RunFn = defaultRun,
 ): VerifierResult {
-  const commands = [cfg.typecheckCommand, cfg.testCommand].filter((command): command is string[] => command !== undefined);
-  if (commands.length === 0) {
-    return {
-      verifierPassed: false,
-      checks: [],
-      verifierFailures: ["unverified: no testCommand/typecheckCommand configured"],
-    };
-  }
+  const missing: string[] = [];
+  if (cfg.configExists === false) missing.push(".gproj/config.json missing");
+  if (!cfg.typecheckCommand) missing.push("typecheckCommand missing");
+  if (!cfg.testCommand) missing.push("testCommand missing");
 
+  const commands = [cfg.typecheckCommand, cfg.testCommand].filter((command): command is string[] => command !== undefined);
   const checks = commands.map((command) => {
     const result = run(command, root);
     return {
@@ -62,12 +62,31 @@ export function runChecks(
       stderrTail: tail(result.stderr),
     };
   });
+  const commandFailures = checks
+    .filter((check) => !check.passed)
+    .map((check) => `${check.command.join(" ")} exited ${check.exitCode}`);
+
+  if (missing.length > 0) {
+    const reasonParts: string[] = [];
+    if (cfg.configExists === false) reasonParts.push(".gproj/config.json missing");
+    if (!cfg.typecheckCommand && !cfg.testCommand) {
+      reasonParts.push("no testCommand/typecheckCommand configured");
+    } else {
+      if (!cfg.typecheckCommand) reasonParts.push("typecheckCommand missing");
+      if (!cfg.testCommand) reasonParts.push("testCommand missing");
+    }
+    return {
+      verifierStatus: "unverified",
+      verifierPassed: false,
+      checks,
+      verifierFailures: [`unverified: ${reasonParts.join("; ")}`, ...commandFailures],
+    };
+  }
 
   return {
-    verifierPassed: checks.length > 0 && checks.every((check) => check.passed),
+    verifierStatus: checks.every((check) => check.passed) ? "verified" : "failed",
+    verifierPassed: checks.every((check) => check.passed),
     checks,
-    verifierFailures: checks
-      .filter((check) => !check.passed)
-      .map((check) => `${check.command.join(" ")} exited ${check.exitCode}`),
+    verifierFailures: commandFailures,
   };
 }
