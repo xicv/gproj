@@ -8,6 +8,7 @@ export type JournalEvent =
   "review_start" |
   "review_done" |
   "decide" |
+  "retarget" |
   "sandbox_apply" |
   "sandbox_discard" |
   "recover" |

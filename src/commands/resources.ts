@@ -28,7 +28,7 @@ import { installStopHook } from "../resources/capture/hook.js";
 import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich] [--relink] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
 }
 
 export interface ResourcesDeps {
@@ -354,7 +354,7 @@ function parseEnrichBatchSize(value: string | boolean | string[] | undefined): n
   }
 }
 
-function parseEnrichArgs(args: string[]): { category?: string; limit?: number; batchSize?: number; dryRun: boolean; reenrich: boolean } {
+function parseEnrichArgs(args: string[]): { category?: string; limit?: number; batchSize?: number; dryRun: boolean; reenrich: boolean; relink: boolean } {
   const parsed = parseArgs({
     args,
     allowPositionals: false,
@@ -364,6 +364,7 @@ function parseEnrichArgs(args: string[]): { category?: string; limit?: number; b
       "batch-size": { type: "string" },
       "dry-run": { type: "boolean", default: false },
       reenrich: { type: "boolean", default: false },
+      relink: { type: "boolean", default: false },
     },
   });
   return {
@@ -372,6 +373,7 @@ function parseEnrichArgs(args: string[]): { category?: string; limit?: number; b
     batchSize: parseEnrichBatchSize(parsed.values["batch-size"]),
     dryRun: parsed.values["dry-run"] === true,
     reenrich: parsed.values.reenrich === true,
+    relink: parsed.values.relink === true,
   };
 }
 
@@ -384,6 +386,7 @@ async function enrich(root: string, args: string[], deps: ResourcesDeps): Promis
     batchSize: options.batchSize,
     dryRun: options.dryRun,
     reenrich: options.reenrich,
+    relink: options.relink,
     now: deps.now,
   });
   const output = renderEnrichResult(result);

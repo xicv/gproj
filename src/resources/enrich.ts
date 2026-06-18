@@ -49,6 +49,7 @@ export interface EnrichOptions {
   limit?: number;
   dryRun?: boolean;
   reenrich?: boolean;
+  relink?: boolean;
   now?: Date;
   batchSize?: number;
   concurrency?: number;
@@ -373,11 +374,17 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
 
   const dryRun = options.dryRun === true;
   const reenrich = options.reenrich === true;
+  const relink = options.relink === true;
   const allCards = getAll(root);
   const scoped = allCards.filter((card) => options.category === undefined || card.category === options.category);
-  const skipped = reenrich ? 0 : scoped.filter((card) => card.enrichedAt !== undefined).length;
+  const isCandidate = (card: ResourceCard): boolean => {
+    if (reenrich) return true;
+    if (relink) return card.links === undefined || card.links.length === 0;
+    return card.enrichedAt === undefined;
+  };
+  const skipped = scoped.filter((card) => !isCandidate(card)).length;
   const candidates = scoped
-    .filter((card) => reenrich || card.enrichedAt === undefined)
+    .filter(isCandidate)
     .slice(0, options.limit);
   const batches = chunk(candidates, batchSize);
   const events: Array<Record<string, unknown>> = [];
