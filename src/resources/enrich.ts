@@ -16,6 +16,7 @@ const defaultConcurrency = 1;
 const defaultMaxExcerptChars = 1200;
 const defaultMaxIndexEntries = 500;
 const defaultMaxIndexChars = 16000;
+const MAX_ENRICHMENT_ENTRIES = 1000;
 
 const PlannerOwnsSchema = z.object({
   symbols: z.array(z.string()).optional(),
@@ -29,12 +30,12 @@ const PlannerLinkSchema = z.object({
 });
 
 const PlannerCardEnrichmentSchema = z.object({
-  category: z.string().min(1).optional(),
-  tags: z.array(z.string()),
-  intent: z.string().optional(),
+  category: z.string().min(1).max(120).optional(),
+  tags: z.array(z.string().max(120)).max(50),
+  intent: z.string().max(200).optional(),
   owns: PlannerOwnsSchema,
-  schemaSource: z.array(z.string()),
-  links: z.array(PlannerLinkSchema),
+  schemaSource: z.array(z.string().max(400)).max(50),
+  links: z.array(PlannerLinkSchema).max(100),
 });
 
 export type PlannerCardEnrichment = z.infer<typeof PlannerCardEnrichmentSchema>;
@@ -173,6 +174,9 @@ function plannerInstruction(): string {
 
 function parsePlannerBatch(raw: string, cards: ResourceCard[]): Map<string, PlannerCardEnrichment> {
   const record = z.record(z.unknown()).parse(extractJson(raw));
+  if (Object.keys(record).length > MAX_ENRICHMENT_ENTRIES) {
+    throw new Error(`planner returned too many enrichment entries (${Object.keys(record).length})`);
+  }
   const enrichments = new Map<string, PlannerCardEnrichment>();
 
   for (const card of cards) {
@@ -208,11 +212,11 @@ function mergeOwns(existing: ResourceOwns | undefined, enrichment: PlannerCardEn
   };
 }
 
-function mergeLinks(existing: ResourceLink[] | undefined, enrichment: PlannerCardEnrichment["links"], knownIds: Set<string>): ResourceLink[] | undefined {
+function mergeLinks(existing: ResourceLink[] | undefined, enrichment: PlannerCardEnrichment["links"], knownIds: Set<string>, currentId: string): ResourceLink[] | undefined {
   const byTarget = new Map<string, ResourceLink>();
   for (const link of [...(existing ?? []), ...enrichment]) {
     const toId = cleanString(link.toId);
-    if (!knownIds.has(toId) || byTarget.has(toId)) continue;
+    if (!toId || toId === currentId || !knownIds.has(toId) || byTarget.has(toId)) continue;
     byTarget.set(toId, { rel: link.rel, toId });
   }
   const links = [...byTarget.values()].sort((a, b) => a.toId.localeCompare(b.toId) || a.rel.localeCompare(b.rel));
@@ -246,8 +250,8 @@ function mergeEnrichment(card: ResourceCard, enrichment: PlannerCardEnrichment, 
     tags: uniqueSortedTags([...card.tags, ...enrichment.tags]),
     ...(intent !== undefined ? { intent } : {}),
     owns: mergeOwns(card.owns, enrichment.owns),
-    schemaSource: uniqueSorted([...(card.schemaSource ?? []), ...enrichment.schemaSource]),
-    links: mergeLinks(card.links, enrichment.links, knownIds),
+    schemaSource: uniqueSorted([...(card.schemaSource ?? []), ...enrichment.schemaSource].map((s) => cleanString(s)).filter(Boolean)),
+    links: mergeLinks(card.links, enrichment.links, knownIds, card.id),
     enrichedAt,
   });
   return next;

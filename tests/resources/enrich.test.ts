@@ -171,6 +171,32 @@ describe("resources enrich", () => {
     expect(existsSync(resourcesIndexPath(root))).toBe(false);
   });
 
+  it("drops planner-proposed self-links", async () => {
+    writeAll(root, [card("r1")]);
+
+    await enrichResources(root, {
+      planner: planner(() => ({
+        r1: validEnrichment({ links: [{ rel: "references", toId: "r1" }] }),
+      })),
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(getAll(root)[0].links?.some((link) => link.toId === "r1")).not.toBe(true);
+  });
+
+  it("sanitizes schemaSource entries", async () => {
+    writeAll(root, [card("r1")]);
+
+    await enrichResources(root, {
+      planner: planner(() => ({
+        r1: validEnrichment({ schemaSource: ["src/x.ts:Foo token=abcXYZ1234567890abcXYZ1234567890"] }),
+      })),
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(getAll(root)[0].schemaSource?.join(" ")).not.toContain("abcXYZ1234567890abcXYZ1234567890");
+  });
+
   it("skips invalid planner batches and continues with later batches", async () => {
     writeAll(root, [card("r1"), card("r2"), card("r3")]);
 
