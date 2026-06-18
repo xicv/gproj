@@ -60,7 +60,7 @@ export function gitEvidence(root: string, baseHead: string | null, run: RunFn = 
 // Pathspec shared with applyWorktree: everything under the worktree except a
 // (possibly symlinked) node_modules tree.
 const DIFF_PATHSPEC = [".", ":(exclude)node_modules", ":(exclude)node_modules/**"];
-const MAX_DIFF_CHARS = 8000;
+const MAX_DIFF_CHARS = 24000;
 
 export function stageForEvidence(
   root: string,
