@@ -149,8 +149,16 @@ export const catalogEntries: CatalogEntry[] = [
     group: "resources",
     summary: "Find resources by symbol, intent, title, tag, or body text.",
     whenToUse: "Locate resources relevant to a code symbol, endpoint, config key, or task phrase.",
-    usage: "gproj resources find <query>",
-    example: 'gproj resources find "AuthService.login"',
+    usage: "gproj resources find [--limit <n>|--all] <query>",
+    example: 'gproj resources find --limit 10 "AuthService.login"',
+  },
+  {
+    name: "resources enrich",
+    group: "resources",
+    summary: "Ask the planner to add retrieval metadata to resource cards.",
+    whenToUse: "Populate missing enrichment fields for imported resources before relying on resource search and links at scale.",
+    usage: "gproj resources enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich]",
+    example: "gproj resources enrich --category docs --limit 30",
   },
   {
     name: "resources schema",

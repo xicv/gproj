@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { PlannerBackend } from "../../src/backends/planner.js";
 import { runCli } from "../../src/cli.js";
 import { resourcesBundleDir, resourcesIndexPath, resourcesManifestPath } from "../../src/format/paths.js";
 import { type ResourceCard } from "../../src/format/schema.js";
@@ -11,9 +12,9 @@ import { renderOkfBundle } from "../../src/resources/okf.js";
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
 
-async function runResources(args: string[]): Promise<string> {
+async function runResources(args: string[], deps: { resourcePlanner?: PlannerBackend } = {}): Promise<string> {
   const lines: string[] = [];
-  await runCli(root, ["resources", ...args], { log: (line) => lines.push(line), error: () => undefined });
+  await runCli(root, ["resources", ...args], { log: (line) => lines.push(line), error: () => undefined }, {}, deps);
   return lines.join("\n");
 }
 
@@ -170,6 +171,22 @@ describe("resources command", () => {
     expect(lines[0]).toContain("field=owns.symbols");
   });
 
+  it("caps find results with --limit and returns all results with --all", async () => {
+    const cards: ResourceCard[] = Array.from({ length: 3 }, (_, index) => ({
+      id: `r${index + 1}`,
+      type: "text",
+      title: `Auth Result ${index + 1}`,
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+    }));
+    writeAll(root, cards);
+    renderOkfBundle(root, cards);
+
+    expect((await runResources(["find", "--limit", "2", "Auth"])).split("\n")).toHaveLength(2);
+    expect((await runResources(["find", "--all", "Auth"])).split("\n")).toHaveLength(3);
+  });
+
   it("returns a controlled error for an unknown id", async () => {
     await expect(runResources(["show", "missing"])).rejects.toThrow("resource not found: missing");
   });
@@ -248,7 +265,8 @@ describe("resources command", () => {
 
     const linkOutput = await runResources(["link", from?.id ?? "", "references", to?.id ?? ""]);
     expect(linkOutput).toContain("resource linked:");
-    expect(readFileSync(join(resourcesBundleDir(root), "root", `${from?.id}.md`), "utf8")).toContain(`- [b](../root/${to?.id}.md)`);
+    const categoryDir = (from?.category ?? "").toLowerCase();
+    expect(readFileSync(join(resourcesBundleDir(root), categoryDir, `${from?.id}.md`), "utf8")).toContain(`- [b](../${categoryDir}/${to?.id}.md)`);
     expect(JSON.parse(readFileSync(resourcesIndexPath(root), "utf8")).find((entry: { id: string }) => entry.id === from?.id)?.links).toEqual([{ toId: to?.id }]);
     expect(await runResources(["doctor"])).toBe("resources doctor: ok");
   });
@@ -304,5 +322,29 @@ describe("resources command", () => {
     writeFileSync(join(root, ".gproj", ".lock"), JSON.stringify({ pid: process.pid, label: "other", ts: Date.now() }));
 
     await expect(runResources(["organise", "--dry-run"])).resolves.toContain("resources organise (dry-run)");
+  });
+
+  it("keeps resources enrich dry-run unlocked by the CLI", async () => {
+    mkdirSync(join(root, ".gproj"), { recursive: true });
+    writeFileSync(join(root, ".gproj", ".lock"), JSON.stringify({ pid: process.pid, label: "other", ts: Date.now() }));
+    writeAll(root, [{
+      id: "r1",
+      type: "text",
+      title: "Resource",
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+    }]);
+
+    const planner: PlannerBackend = {
+      name: "mock",
+      async ask() {
+        return JSON.stringify({ r1: { tags: [], owns: {}, schemaSource: [], links: [] } });
+      },
+    };
+
+    const output = await runResources(["enrich", "--dry-run"], { resourcePlanner: planner });
+
+    expect(JSON.parse(output.split("\n").at(-1) ?? "{}")).toMatchObject({ event: "summary", dryRun: true, enriched: 1 });
   });
 });

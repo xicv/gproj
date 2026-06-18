@@ -12,6 +12,7 @@ import {
   type ResourceOwns,
 } from "../format/schema.js";
 import { renderResourceDoctor } from "../resources/doctor.js";
+import { enrichResources, renderEnrichResult } from "../resources/enrich.js";
 import { importResource } from "../resources/import.js";
 import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manifest.js";
 import { organiseResources, renderOrganiseResult } from "../resources/organise.js";
@@ -23,7 +24,7 @@ import { installStopHook } from "../resources/capture/hook.js";
 import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
 }
 
 export interface ResourcesDeps {
@@ -285,10 +286,35 @@ function renderFindResult(match: RankedResource): string {
   return `${entry.id}\t${entry.category}\t${entry.type}\t${entry.title}\tmatch=${match.reason}\tfield=${match.field}`;
 }
 
-function findResources(root: string, args: string[]): string {
-  if (args.length !== 1) throw new Error(usage());
-  const query = args[0].trim();
+const defaultFindLimit = 20;
+
+function parsePositiveInteger(value: string | undefined, flag: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^[1-9][0-9]*$/.test(value)) throw new Error(`${flag} must be a positive integer`);
+  return Number(value);
+}
+
+function parseFindArgs(args: string[]): { query: string; limit: number | null } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      limit: { type: "string" },
+      all: { type: "boolean", default: false },
+    },
+  });
+  if (parsed.positionals.length !== 1) throw new Error(usage());
+  const query = parsed.positionals[0].trim();
   if (!query) throw new Error(usage());
+  const all = parsed.values.all === true;
+  return {
+    query,
+    limit: all ? null : parsePositiveInteger(typeof parsed.values.limit === "string" ? parsed.values.limit : undefined, "--limit") ?? defaultFindLimit,
+  };
+}
+
+function findResources(root: string, args: string[]): string {
+  const { query, limit } = parseFindArgs(args);
   const cards = getAll(root);
   const byId = new Map(cards.map((card) => [card.id, card]));
   const entries = readOkfIndex(root) ?? buildOkfIndex(cards);
@@ -299,7 +325,8 @@ function findResources(root: string, args: string[]): string {
     })
     .sort(compareRanked);
   if (matches.length === 0) return "resources: none";
-  return matches.map(renderFindResult).join("\n");
+  const capped = limit === null ? matches : matches.slice(0, limit);
+  return capped.map(renderFindResult).join("\n");
 }
 
 function renderSchemaResolution(resolution: SchemaSourceResolution): string {
@@ -363,6 +390,38 @@ function organise(root: string, args: string[]): string {
   });
   if (!options.dryRun) appendJournal(root, { phase: 0, event: "resources-organised", status: "ok", detail: `imports=${result.imports.length}; duplicates=${result.duplicates.length}` });
   return renderOrganiseResult(result);
+}
+
+function parseEnrichArgs(args: string[]): { category?: string; limit?: number; dryRun: boolean; reenrich: boolean } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: false,
+    options: {
+      category: { type: "string" },
+      limit: { type: "string" },
+      "dry-run": { type: "boolean", default: false },
+      reenrich: { type: "boolean", default: false },
+    },
+  });
+  return {
+    category: typeof parsed.values.category === "string" ? parsed.values.category : undefined,
+    limit: parsePositiveInteger(typeof parsed.values.limit === "string" ? parsed.values.limit : undefined, "--limit"),
+    dryRun: parsed.values["dry-run"] === true,
+    reenrich: parsed.values.reenrich === true,
+  };
+}
+
+async function enrich(root: string, args: string[], deps: ResourcesDeps): Promise<string> {
+  const options = parseEnrichArgs(args);
+  const result = await enrichResources(root, {
+    planner: plannerForFinalize(root, deps),
+    category: options.category,
+    limit: options.limit,
+    dryRun: options.dryRun,
+    reenrich: options.reenrich,
+    now: deps.now,
+  });
+  return renderEnrichResult(result);
 }
 
 function linkResource(root: string, args: string[]): string {
@@ -529,6 +588,8 @@ export async function runResources(root: string, args: string[], deps: Resources
       return addResource(root, rest);
     case "organise":
       return organise(root, rest);
+    case "enrich":
+      return enrich(root, rest, deps);
     case "list":
       return listResources(root, rest);
     case "show":
@@ -556,6 +617,13 @@ export async function runResources(root: string, args: string[], deps: Resources
 export function isResourcesMutation(args: string[]): boolean {
   const [verb, ...rest] = args;
   if (verb === "add" || verb === "link" || verb === "rm" || verb === "index") return true;
+  if (verb === "enrich") {
+    try {
+      return !parseEnrichArgs(rest).dryRun;
+    } catch {
+      return false;
+    }
+  }
   if (verb === "capture") {
     if (rest.includes("--auto")) return false;
     const subcommand = rest.find((arg) => !arg.startsWith("--"));

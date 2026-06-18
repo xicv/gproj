@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { resourcesManifestPath } from "../../src/format/paths.js";
 import { getAll, add } from "../../src/resources/manifest.js";
 import { importResource } from "../../src/resources/import.js";
@@ -31,7 +31,7 @@ describe("resources organise", () => {
     expect(existsSync(resourcesManifestPath(root))).toBe(false);
   });
 
-  it("derives categories from scan-root subdirectories with root fallback", () => {
+  it("derives categories from scan-root subdirectories with scan-root basename fallback", () => {
     mkdirSync(join(root, "docs", "dji-cloud-api"), { recursive: true });
     mkdirSync(join(root, "docs", "firmware"), { recursive: true });
     writeFileSync(join(root, "docs", "dji-cloud-api", "spec.md"), "# Spec\n");
@@ -43,9 +43,17 @@ describe("resources organise", () => {
     const byTitle = new Map(getAll(root).map((card) => [card.title, card]));
     expect(byTitle.get("spec")?.category).toBe("dji-cloud-api");
     expect(byTitle.get("payload")?.category).toBe("firmware");
-    expect(byTitle.get("readme")?.category).toBe("root");
+    expect(byTitle.get("readme")?.category).toBe("docs");
     expect(byTitle.get("payload")?.category).not.toBe("assets");
     expect(byTitle.get("readme")?.category).not.toBe("documents");
+  });
+
+  it("uses the current scan root basename for files at repository root", () => {
+    writeFileSync(join(root, "readme.md"), "# Readme\n");
+
+    organiseResources(root, ".", { now: new Date("2026-06-17T00:00:00.000Z") });
+
+    expect(getAll(root)[0].category).toBe(basename(root));
   });
 
   it("applies organise category overrides to all imported cards", () => {

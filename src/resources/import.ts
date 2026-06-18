@@ -4,7 +4,31 @@ import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path
 import { resourceAssetDir } from "../format/paths.js";
 import { type ResourceCard, type ResourceLink, type ResourceOwns } from "../format/schema.js";
 
-export const textExtensions = new Set([".md", ".markdown", ".mdx", ".txt", ".text"]);
+export const textExtensions = new Set([
+  ".md",
+  ".mmd",
+  ".txt",
+  ".sh",
+  ".csv",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".ts",
+  ".js",
+  ".tsx",
+  ".jsx",
+  ".py",
+  ".go",
+  ".rs",
+  ".toml",
+  ".ini",
+  ".xml",
+  ".html",
+  ".css",
+  ".markdown",
+  ".mdx",
+  ".text",
+]);
 const excerptLimit = 240;
 
 export function toPosix(path: string): string {
