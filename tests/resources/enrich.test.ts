@@ -219,6 +219,39 @@ describe("resources enrich", () => {
     ]);
   });
 
+  it("defaults to batches of 8", async () => {
+    writeAll(root, Array.from({ length: 9 }, (_, index) => card(`r${index + 1}`)));
+    const calls: string[][] = [];
+
+    await enrichResources(root, {
+      planner: planner((req) => {
+        const ids = idsFromPack(req);
+        calls.push(ids);
+        return Object.fromEntries(ids.map((id) => [id, validEnrichment()]));
+      }),
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(calls.map((ids) => ids.length)).toEqual([8, 1]);
+  });
+
+  it("honors the configured batchSize option", async () => {
+    writeAll(root, Array.from({ length: 7 }, (_, index) => card(`r${index + 1}`)));
+    const calls: string[][] = [];
+
+    await enrichResources(root, {
+      planner: planner((req) => {
+        const ids = idsFromPack(req);
+        calls.push(ids);
+        return Object.fromEntries(ids.map((id) => [id, validEnrichment()]));
+      }),
+      batchSize: 3,
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(calls.map((ids) => ids.length)).toEqual([3, 3, 1]);
+  });
+
   it("keeps dry-run side-effect free while reporting proposed changes", async () => {
     writeAll(root, [card("r1")]);
     const before = readFileSync(resourcesManifestPath(root), "utf8");

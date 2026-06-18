@@ -462,4 +462,33 @@ describe("resources command", () => {
 
     expect(JSON.parse(output.split("\n").at(-1) ?? "{}")).toMatchObject({ event: "summary", dryRun: true, enriched: 1 });
   });
+
+  it("passes resources enrich --batch-size through to enrichment", async () => {
+    writeAll(root, Array.from({ length: 7 }, (_, index) => ({
+      id: `r${index + 1}`,
+      type: "text",
+      title: `Resource ${index + 1}`,
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+    })));
+    const calls: string[][] = [];
+    const planner: PlannerBackend = {
+      name: "mock",
+      async ask(req) {
+        const ids = (JSON.parse(req.pack) as { cards: Array<{ id: string }> }).cards.map((item) => item.id);
+        calls.push(ids);
+        return JSON.stringify(Object.fromEntries(ids.map((id) => [id, { tags: [], owns: {}, schemaSource: [], links: [] }])));
+      },
+    };
+
+    await runResources(["enrich", "--dry-run", "--batch-size", "3"], { resourcePlanner: planner });
+
+    expect(calls.map((ids) => ids.length)).toEqual([3, 3, 1]);
+  });
+
+  it("rejects invalid resources enrich --batch-size values with usage", async () => {
+    await expect(runResources(["enrich", "--batch-size", "0"])).rejects.toThrow("usage: gproj resources");
+    await expect(runResources(["enrich", "--batch-size", "NaN"])).rejects.toThrow("usage: gproj resources");
+  });
 });
