@@ -1,9 +1,9 @@
 # gproj
 
-**A project brain for AI coding agents.** You set direction, a high-reasoning
-*planner* plans and reviews, an *executor* (Codex / Claude Code) edits the code
-— and gproj remembers everything, verifies the work itself, and never touches
-your real code until you say so.
+**A project brain for AI coding agents.** You set direction; a high-reasoning
+*planner* plans and reviews; an *executor* (Codex / Claude Code) edits the code.
+gproj remembers everything, verifies the work itself, captures what you learn,
+and never touches your real code until you say so.
 
 ```bash
 npm i -g @nickcao/gproj
@@ -15,54 +15,31 @@ npm i -g @nickcao/gproj
 
 ## Why it exists
 
-You already use an AI coding agent. Three things keep hurting:
+You already use an AI coding agent. Four things keep hurting:
 
-1. **It forgets.** Every session you re-explain the goal, the decisions, the
-   dead ends. Context evaporates.
-2. **It grades its own homework.** "Done — tests pass." You re-run them. They
-   don't.
-3. **It edits your real tree while it experiments.** A half-baked attempt is in
-   your working directory before you decided you wanted it.
+1. **It forgets.** Every session you re-explain the goal, the decisions, the dead ends.
+2. **It grades its own homework.** "Done — tests pass." You re-run them. They don't.
+3. **It edits your real tree while it experiments.** A half-baked attempt lands before you wanted it.
+4. **Hard-won knowledge evaporates.** You debug something tricky, then re-derive it next month.
 
-gproj is a thin layer that fixes all three. It is **not another model** — it's
-the durable memory, the independent verification, and the safety rail around
-the model you already use.
-
-> Pair-programming with someone who has amnesia → vs → working with someone who
-> keeps a project notebook, runs the tests *before* claiming victory, and writes
-> on a scratch copy until you say "ship it."
+gproj is a thin layer over the model you already use. It is **not another model** —
+it is durable memory, independent verification, a safety rail, and a growing
+knowledge base your agent can search.
 
 ---
 
-## A real scenario
+## What gproj gives you
 
-Building a "meeting agent" — three days of work, bouncing between Codex (fast
-edits) and Claude Code (trickier reasoning).
-
-**Without gproj:** each morning you paste the goal again, re-explain yesterday's
-data-model decision, re-hit the dead end you already found. "Tests green" — you
-re-run them. A bad experiment — `git checkout .` to claw your tree back.
-
-**With gproj:**
-
-```bash
-cd meeting-agent                 # your git repo
-gproj init "Summarize calls and file action items"
-
-# Plan → edit (sandboxed) → review, one phase. Planner = your ChatGPT Pro
-# browser (no API key); executor = Codex.
-GPROJ_PLANNER=oracle-browser GPROJ_EXECUTOR=codex gproj advance
-
-gproj status                     # where are we? what's next?
-gproj decide accept              # YOU approve — only now does real code change
-```
-
-Day two: different laptop, switch the executor to Claude Code — gproj still
-knows the goal, the phase, the decisions, and what failed. You never re-explain.
+| Pillar | What it does |
+|---|---|
+| **The loop** | `init → package → exec → review → decide` — plan, edit in a sandbox, verify, human gate. |
+| **Resources** | A curated, categorized, cross-linked knowledge base (docs/links/PDFs/images) the planner can search by symbol, endpoint, or intent. |
+| **SOP capture** | Automatically turn a debugging/work session into a reusable, redacted SOP card — credentials stay local. |
+| **Agent-native** | `gproj catalog` + `gproj install-agent` make Claude and Codex fluent in gproj with zero rote. |
 
 ---
 
-## The loop (the whole mental model)
+## 1. The loop (the whole mental model)
 
 ```
   you ──set direction──▶  init
@@ -80,54 +57,123 @@ knows the goal, the phase, the decisions, and what failed. You never re-explain.
 | `init` | you | set the one-sentence goal |
 | `package` | planner | turn goal + memory into a concrete phase instruction |
 | `exec` | executor | make the edits **inside an isolated git worktree** |
-| `review` | planner | critique the **verified** evidence |
+| `review` | planner | critique the **verified** evidence (diff + tests) |
 | `decide` | **you** | `accept` applies, `adjust` retries, `reject` discards |
 | `advance` | — | runs package→exec→review, stops at your decide gate |
 
-One phase at a time. A human gate between each.
+The rule that ties it together: **the executor proposes, gproj verifies, you
+decide.** The model never marks its own work done; your codebase never changes
+without your explicit `accept`. The executor's self-report is untrusted — gproj
+runs git + your test command itself, and only its result counts.
+
+## 2. Resources — a searchable project knowledge base
+
+Stop re-pasting "the docs are here, the spec is there." Register reference
+material once; the planner gets a pointer-only index every round and can fetch
+specifics on demand. Stored as an **OKF v0.1** markdown bundle under `.gproj/`.
+
+```bash
+gproj resources organise docs/            # bulk-import a tree; category = subdir
+gproj resources add api.md --category billing --tags api,stripe \
+  --intent "billing webhooks" --owns-symbol StripeWebhook \
+  --owns-endpoint "POST /webhooks/stripe" --schema-source src/billing.ts:StripeWebhook
+gproj resources find StripeWebhook        # ranked: by symbol > endpoint > intent > tags > body
+gproj resources schema <id>               # jump from the doc to the code definition (path:line)
+gproj resources list | show <id> | link <a> defines <b> | rm <id> | doctor
+gproj resources index                     # refresh the .okf-index.json cache
+```
+
+`find` ranks by what a card *owns* (symbols, endpoints, config keys), so
+`gproj resources find "POST /webhooks/stripe"` returns the one doc that owns it.
+
+## 3. SOP capture — procedural memory from your sessions
+
+You debug something, tell the agent where to look (DB, browser, data flow), it
+fixes it — and normally that knowledge is gone. gproj captures it.
+
+```bash
+gproj resources capture install-hook      # one-time: auto-capture at session end
+# ...work / debug as usual...
+gproj resources capture list              # triage what was captured (redacted digests)
+gproj resources capture finalize <id>     # planner drafts a reusable SOP card
+gproj resources capture finalize <id> --share   # also allow it to sync (default: local)
+gproj resources find <symbol|topic>       # next similar issue → your prior SOP
+```
+
+- **Automatic**: a Claude Code Stop hook captures substantive sessions; no manual
+  start/stop. Trivial sessions are skipped.
+- **Auto-classified** as `debug` / `research` / `feature`.
+- **Redacted**: secrets become source refs (`env:NAME`) or `[REDACTED:secret]`,
+  scrubbed before anything hits disk.
+- **Local by default**: SOPs never sync unless you `--share` them.
+
+## 4. Cloud sync (optional) — back up the brain to a ChatGPT Pro project
+
+```bash
+gproj sync push           # upload shared .gproj state to your ChatGPT project (via oracle)
+gproj sync list           # show remote sources
+gproj sync fetch <file>   # best-effort retrieve a file back (warns: not byte-exact; --force to overwrite)
+```
+
+Only `shared` resources sync; local SOPs, pending captures, and credentials never
+leave your machine. Configure `cloudSync.chatgptUrl` in `.gproj/config.json`.
+
+## 5. Make your agent fluent in gproj
+
+gproj is **self-describing** — it documents its own commands, so the agent skill
+never goes stale:
+
+```bash
+gproj catalog                     # human-readable command map
+gproj catalog --json              # structured (for tools)
+gproj catalog --intent "debug a flaky test"   # route an intent to commands
+gproj install-agent               # install the operator skill for Claude + Codex (global)
+gproj install-agent --project     # committed/team scope (repo .claude/skills + AGENTS.md)
+gproj install-agent --uninstall
+```
+
+`install-agent` writes a thin operator skill (Claude `SKILL.md`) and a managed
+`AGENTS.md` block (Codex) that point the agent at `gproj catalog` / `gproj <cmd>
+--help` — so Claude or Codex can discover and run everything without you
+memorizing it.
 
 ---
 
-## How it helps everyday development
+## Real-world cheat sheet
 
-- **You stop re-explaining.** `.gproj/` holds the goal, plan, decisions, known
-  issues, and every run. A budget-bounded "context pack" is assembled each
-  round — the essentials (goal, phase, latest evidence) are *never* trimmed.
-- **You can trust "tests pass" again.** The executor's self-report is
-  **untrusted** (`executorClaims`). gproj runs git + your test command *itself*,
-  and only its own result counts. The model can't grade its own homework.
-- **Experiments can't wreck your tree.** The executor works in a throwaway git
-  worktree. `reject` discards it; your real code was never touched. Only
-  `accept` applies — atomically, and only after gproj checks your repo hasn't
-  moved underneath it.
-- **It's tool-agnostic.** Swap planner and executor backends freely — ChatGPT
-  Pro browser today, Codex or Claude Code as the hands — without losing state.
-- **It's recoverable.** Atomic writes + a repo lock + a run journal survive a
-  crash mid-run; `gproj recover` cleans up and `gproj doctor` diagnoses.
+| You want to… | Run |
+|---|---|
+| Start a tracked goal | `gproj init "Ship onboarding flow"` |
+| Do one safe round (plan→edit→verify, stop at your gate) | `gproj advance` then `gproj decide accept` |
+| See where you are | `gproj status` |
+| Retry a phase with feedback / throw it away | `gproj decide adjust` / `gproj decide reject` |
+| Recover after a crash | `gproj recover` · `gproj doctor` |
+| Organize scattered docs into the knowledge base | `gproj resources organise docs/` |
+| Find the doc that owns a symbol / endpoint | `gproj resources find PaymentIntent` |
+| Jump from a doc to the code it documents | `gproj resources schema <id>` |
+| Turn on automatic SOP capture | `gproj resources capture install-hook` |
+| Save a debugging session as a reusable SOP | `gproj resources capture finalize <id>` |
+| Reuse a past fix for a recurring issue | `gproj resources find "<the symptom/symbol>"` |
+| Share a procedure to your ChatGPT project | `finalize <id> --share` then `gproj sync push` |
+| Teach Claude/Codex to drive gproj | `gproj install-agent` |
+| List every command (always current) | `gproj catalog` |
 
----
+### End-to-end: a recurring bug
 
-## Architecture, in plain terms
-
-| Piece | What it is | Why it matters |
-|---|---|---|
-| **`.gproj/` on disk** | plan, decisions, known issues, per-run records, state | the brain that survives sessions, tools, reboots |
-| **Context assembler** | builds a budget-bounded pack each round | feeds the planner what fits; never drops goal / phase / latest evidence |
-| **Planner backend** | the reasoning model | clarifies, plans, reviews — the "brain" |
-| **Executor backend** | the code editor | does the actual edits — the "hands" |
-| **Sandbox (git worktree)** | executor edits land in isolation | nothing touches real code until you accept |
-| **Verifier** | gproj runs git + your tests itself | the source of truth for "did it pass" |
-| **State machine** | `init → planning → packaged → executing → reviewing → deciding` | one phase at a time, human gate enforced |
-
-The rule that ties it together: **the executor proposes, gproj verifies, and you
-decide.** The model never marks its own work done, and your codebase never
-changes without your explicit `accept`.
+```bash
+gproj resources capture install-hook         # once, globally
+# bug reported → you debug it with your agent (check DB, logs, repro)
+gproj resources capture list                 # the session was captured + redacted
+gproj resources capture finalize <id>        # → an SOP card: facts, environment, repro, fix
+# weeks later, similar bug:
+gproj resources find "<error or symbol>"     # → your SOP; agent re-runs / confirms instead of re-deriving
+```
 
 ---
 
 ## Configuration
 
-Optional `.gproj/config.json` in your repo:
+Optional `.gproj/config.json` (gproj scaffolds a default on `init`):
 
 ```json
 {
@@ -135,7 +181,8 @@ Optional `.gproj/config.json` in your repo:
   "typecheckCommand": ["npx", "tsc", "--noEmit"],
   "plannerBackend": "oracle-browser",
   "executorBackend": "codex",
-  "sandbox": { "mode": "worktree" }
+  "sandbox": { "mode": "worktree" },
+  "cloudSync": { "chatgptUrl": "https://chatgpt.com/g/g-p-.../project" }
 }
 ```
 
@@ -146,7 +193,7 @@ Optional `.gproj/config.json` in your repo:
 | Planner | `stub` · `oracle-browser` (ChatGPT Pro via browser, no API key) · `openai-responses` (needs `OPENAI_API_KEY`) |
 | Executor | `stub` · `codex` · `claude-code` |
 
-Override per-run with `GPROJ_PLANNER` / `GPROJ_EXECUTOR` env vars. Precedence is
+Override per-run with `GPROJ_PLANNER` / `GPROJ_EXECUTOR`. Precedence:
 `env > .gproj/config.json > default`.
 
 ---
@@ -154,16 +201,44 @@ Override per-run with `GPROJ_PLANNER` / `GPROJ_EXECUTOR` env vars. Precedence is
 ## Commands
 
 ```
-gproj init "<goal>"          start a project brain in the current repo
-gproj package                plan the current phase
-gproj exec                   run the executor (in a sandbox)
-gproj review                 planner critiques the verified evidence
+# the loop
+gproj init "<goal>"                 start a project brain in the current repo
+gproj package | exec | review       plan / run executor (sandbox) / critique evidence
 gproj decide accept|adjust|reject   the human gate
-gproj advance                package → exec → review in one step
-gproj status                 phase + next step
-gproj doctor                 diagnose configuration / state
-gproj recover                clean up after a crashed run
+gproj advance                       package → exec → review in one step
+gproj status | doctor | recover     state / diagnose / clean up after a crash
+
+# resources (knowledge base)
+gproj resources organise [dir] [--delete]   bulk-import a tree (dedup; --delete prunes duplicate originals)
+gproj resources add <path> [--category --tags --title --type --intent --owns-* --schema-source --link]
+gproj resources find <query> | schema <id> | list | show <id> | link <a> <rel> <b> | rm <id> | index | doctor
+
+# SOP capture (procedural memory)
+gproj resources capture [--auto --session <id>] | list | finalize <id> [--share] | discard <id>
+gproj resources capture install-hook [--project|--global] [--uninstall]
+
+# cloud sync (optional)
+gproj sync push | list | status | fetch <file...> [--force]
+
+# agent enablement
+gproj catalog [--json] [--intent <text>]
+gproj install-agent [--global|--project] [--claude] [--codex] [--uninstall]
 ```
+
+Run `gproj catalog` for the always-current list.
+
+---
+
+## Architecture, in plain terms
+
+| Piece | What it is | Why it matters |
+|---|---|---|
+| **`.gproj/` on disk** | goal, plan, decisions, runs, resources, SOPs, state | the brain that survives sessions, tools, reboots |
+| **Context assembler** | budget-bounded pack each round | feeds the planner what fits; never drops goal / phase / latest evidence |
+| **Planner / Executor backends** | the reasoning model / the code editor | swap freely without losing state |
+| **Sandbox (git worktree)** | executor edits land in isolation | nothing touches real code until you accept |
+| **Verifier** | gproj runs git + your tests itself | the source of truth for "did it pass" |
+| **Resources + OKF bundle** | searchable knowledge base + SOPs | the agent finds prior work instead of re-deriving it |
 
 ---
 
