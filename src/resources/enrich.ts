@@ -10,6 +10,7 @@ import {
 import { sanitize } from "../redact/sanitize.js";
 import { getAll, writeAll } from "./manifest.js";
 import { renderOkfBundle } from "./okf.js";
+import { resolveSchemaSource } from "./schemaSource.js";
 
 const defaultBatchSize = 15;
 const defaultConcurrency = 1;
@@ -241,7 +242,7 @@ function changedFields(before: ResourceCard, after: ResourceCard): string[] {
   return Object.keys(right).filter((field) => JSON.stringify(left[field]) !== JSON.stringify(right[field]));
 }
 
-function mergeEnrichment(card: ResourceCard, enrichment: PlannerCardEnrichment, knownIds: Set<string>, enrichedAt: string): ResourceCard {
+function mergeEnrichment(root: string, card: ResourceCard, enrichment: PlannerCardEnrichment, knownIds: Set<string>, enrichedAt: string): ResourceCard {
   const category = enrichment.category === undefined ? card.category : cleanString(enrichment.category);
   const intent = enrichment.intent === undefined ? card.intent : cleanString(enrichment.intent) || card.intent;
   const next = ResourceCardSchema.parse({
@@ -250,7 +251,12 @@ function mergeEnrichment(card: ResourceCard, enrichment: PlannerCardEnrichment, 
     tags: uniqueSortedTags([...card.tags, ...enrichment.tags]),
     ...(intent !== undefined ? { intent } : {}),
     owns: mergeOwns(card.owns, enrichment.owns),
-    schemaSource: uniqueSorted([...(card.schemaSource ?? []), ...enrichment.schemaSource].map((s) => cleanString(s)).filter(Boolean)),
+    schemaSource: uniqueSorted(
+      [...(card.schemaSource ?? []), ...enrichment.schemaSource]
+        .map((s) => cleanString(s))
+        .filter(Boolean)
+        .filter((ref) => resolveSchemaSource(root, ref).status === "resolved"),
+    ),
     links: mergeLinks(card.links, enrichment.links, knownIds, card.id),
     enrichedAt,
   });
@@ -318,7 +324,7 @@ function commitBatch(
     const currentCard = byId.get(card.id);
     const enrichment = prepared.enrichments.get(card.id);
     if (!currentCard || !enrichment) continue;
-    const next = mergeEnrichment(currentCard, enrichment, options.knownIds, options.enrichedAt);
+    const next = mergeEnrichment(root, currentCard, enrichment, options.knownIds, options.enrichedAt);
     const fields = changedFields(currentCard, next);
     if (fields.length === 0) {
       unchanged += 1;
