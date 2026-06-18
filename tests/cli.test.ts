@@ -51,6 +51,8 @@ describe("cli", () => {
     expect(errors.join("\n")).toContain("recover");
     expect(errors.join("\n")).toContain("doctor");
     expect(errors.join("\n")).toContain("sync");
+    expect(errors.join("\n")).toContain("catalog");
+    expect(errors.join("\n")).toContain("install-agent");
   });
 
   it("uses configured planner backend unless env overrides it", async () => {

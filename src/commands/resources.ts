@@ -23,7 +23,7 @@ import { installStopHook } from "../resources/capture/hook.js";
 import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--uninstall]";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
 }
 
 export interface ResourcesDeps {
@@ -483,13 +483,23 @@ function runCaptureDiscard(root: string, args: string[]): string {
   return `capture discarded: ${pending.id}`;
 }
 
-function runCaptureInstallHook(args: string[], deps: ResourcesDeps): string {
+function runCaptureInstallHook(root: string, args: string[], deps: ResourcesDeps): string {
   const parsed = parseArgs({
     args,
     allowPositionals: false,
-    options: { uninstall: { type: "boolean", default: false } },
+    options: {
+      global: { type: "boolean", default: false },
+      project: { type: "boolean", default: false },
+      uninstall: { type: "boolean", default: false },
+    },
   });
-  return installStopHook({ home: homeFromDeps(deps), uninstall: parsed.values.uninstall === true });
+  if (parsed.values.global === true && parsed.values.project === true) throw new Error(usage());
+  return installStopHook({
+    home: homeFromDeps(deps),
+    root,
+    scope: parsed.values.project === true ? "project" : "global",
+    uninstall: parsed.values.uninstall === true,
+  });
 }
 
 async function runCapture(root: string, args: string[], deps: ResourcesDeps): Promise<string> {
@@ -505,7 +515,7 @@ async function runCapture(root: string, args: string[], deps: ResourcesDeps): Pr
     case "discard":
       return runCaptureDiscard(root, rest);
     case "install-hook":
-      return runCaptureInstallHook(rest, deps);
+      return runCaptureInstallHook(root, rest, deps);
     default:
       if (verb.startsWith("--")) return runCaptureCreate(root, args, deps);
       throw new Error(usage());
