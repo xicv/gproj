@@ -17,7 +17,7 @@ import { importResource } from "../resources/import.js";
 import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manifest.js";
 import { organiseResources, renderOrganiseResult } from "../resources/organise.js";
 import { buildOkfIndex, readOkfIndex, renderOkfBundle, writeOkfIndex, type OkfIndexEntry } from "../resources/okf.js";
-import { resolveSchemaSources, type SchemaSourceResolution } from "../resources/schemaSource.js";
+import { resolveSchemaSource, type SchemaSourceResolution } from "../resources/schemaSource.js";
 import { captureSession, renderCaptureResult } from "../resources/capture/capture.js";
 import { finalizePendingCapture } from "../resources/capture/finalize.js";
 import { installStopHook } from "../resources/capture/hook.js";
@@ -353,7 +353,7 @@ function schemaResource(root: string, args: string[]): string {
   if (!card) throw new Error(`resource not found: ${id}`);
   const sources = card.schemaSource ?? [];
   if (sources.length === 0) return "resource schema: none";
-  return resolveSchemaSources(root, sources).map(renderSchemaResolution).join("\n");
+  return sources.map((source) => resolveSchemaSource(root, source)).map(renderSchemaResolution).join("\n");
 }
 
 function indexResources(root: string, args: string[]): string {

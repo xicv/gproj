@@ -7,6 +7,7 @@ import { getAll, writeAll } from "./manifest.js";
 import { renderOkfBundle } from "./okf.js";
 
 const excludedNames = new Set([".gproj", ".git", "node_modules", "dist", "build"]);
+const junkFilenames = new Set([".DS_Store", "Thumbs.db", "desktop.ini", ".Spotlight-V100", ".Trashes", ".localized"]);
 
 export interface OrganiseDuplicate {
   path: string;
@@ -63,7 +64,15 @@ function shouldSkipDir(root: string, path: string, name: string): boolean {
 function shouldSkipFile(root: string, path: string): boolean {
   if (isInside(path, resourcesBundleDir(root))) return true;
   const rel = toPosix(relative(root, path));
-  return rel.split("/").some((segment) => excludedNames.has(segment));
+  if (rel.split("/").some((segment) => excludedNames.has(segment))) return true;
+  const name = basename(path);
+  if (junkFilenames.has(name) || name.startsWith("._")) return true;
+  try {
+    if (statSync(path).size === 0) return true;
+  } catch {
+    return true;
+  }
+  return false;
 }
 
 function walk(root: string, dir: string, files: CandidateFile[]): void {

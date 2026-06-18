@@ -222,6 +222,34 @@ describe("resources command", () => {
     expect(output).toContain("warning: src/auth.ts:duplicate: ambiguous match (2)");
   });
 
+  it("keeps valid schemaSource through organise, enrich, and schema lookup", async () => {
+    mkdirSync(join(root, "docs"), { recursive: true });
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "docs", "valid.md"), "# Valid\nbody\n");
+    writeFileSync(join(root, "src", "x.ts"), "export class Real {}\n");
+
+    await runResources(["organise", "docs"]);
+    const [card] = getAll(root);
+    const planner: PlannerBackend = {
+      name: "mock",
+      async ask(req) {
+        const ids = (JSON.parse(req.pack) as { cards: Array<{ id: string }> }).cards.map((item) => item.id);
+        return JSON.stringify(Object.fromEntries(ids.map((id) => [id, {
+          tags: [],
+          owns: {},
+          schemaSource: ["context", "src/x.ts:Real", "src/x.ts:Nope"],
+          links: [],
+        }])));
+      },
+    };
+
+    await runResources(["enrich"], { resourcePlanner: planner });
+    const output = await runResources(["schema", card.id]);
+
+    expect(getAll(root)[0].schemaSource).toEqual(["src/x.ts:Real"]);
+    expect(output).toBe("src/x.ts:1\tReal");
+  });
+
   it("generates the index cache on demand", async () => {
     writeAll(root, [{
       id: "r1",

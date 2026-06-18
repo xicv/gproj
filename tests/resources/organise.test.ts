@@ -21,6 +21,18 @@ describe("resources organise", () => {
     expect(scanResourceFiles(root).map((file) => file.sourcePath)).toEqual(["note.md"]);
   });
 
+  it("skips junk AppleDouble and zero-byte files without importing them as cards", () => {
+    writeFileSync(join(root, ".DS_Store"), "finder metadata");
+    writeFileSync(join(root, "._resourcefork"), "appledouble metadata");
+    writeFileSync(join(root, "empty.md"), "");
+    writeFileSync(join(root, "guide.md"), "# Guide\nbody\n");
+
+    const result = organiseResources(root, ".", { now: new Date("2026-06-17T00:00:00.000Z") });
+
+    expect(result.imports.map((item) => item.path)).toEqual(["guide.md"]);
+    expect(getAll(root).map((card) => card.sourcePaths)).toEqual([["guide.md"]]);
+  });
+
   it("dry-runs without writing the manifest or assets", () => {
     writeFileSync(join(root, "note.md"), "# Note\nbody\n");
     writeFileSync(join(root, "image.bin"), Buffer.from([1, 2, 3]));

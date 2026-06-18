@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PlannerAsk, PlannerBackend } from "../../src/backends/planner.js";
@@ -52,6 +52,8 @@ function planner(responder: (req: PlannerAsk, call: number) => unknown | Promise
 
 describe("resources enrich", () => {
   it("merges validated enrichment, redacts text fields, drops unknown links, and writes bundle state", async () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "auth.ts"), "export class AuthService {}\n");
     writeAll(root, [
       card("r1", {
         title: "Auth Notes",
@@ -112,6 +114,23 @@ describe("resources enrich", () => {
     expect(enriched?.enrichedAt).toBe("2026-06-18T01:00:00.000Z");
     expect(enriched).not.toHaveProperty("visibility", "shared");
     expect(existsSync(resourcesIndexPath(root))).toBe(true);
+  });
+
+  it("drops schemaSource that does not resolve to real code", async () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "auth.ts"), "export class AuthService {}\n");
+    writeAll(root, [card("r1")]);
+
+    await enrichResources(root, {
+      planner: planner(() => ({
+        r1: validEnrichment({
+          schemaSource: ["context", "src/auth.ts:AuthService", "src/auth.ts:Missing"],
+        }),
+      })),
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(getAll(root)[0].schemaSource).toEqual(["src/auth.ts:AuthService"]);
   });
 
   it("scopes by category and limit, then skips enriched cards unless reenrich is set", async () => {
@@ -194,7 +213,8 @@ describe("resources enrich", () => {
       now: new Date("2026-06-18T01:00:00.000Z"),
     });
 
-    expect(getAll(root)[0].schemaSource?.join(" ")).not.toContain("abcXYZ1234567890abcXYZ1234567890");
+    expect(getAll(root)[0].schemaSource?.join(" ") ?? "").not.toContain("abcXYZ1234567890abcXYZ1234567890");
+    expect(getAll(root)[0].schemaSource).toEqual([]);
   });
 
   it("skips invalid planner batches and continues with later batches", async () => {
