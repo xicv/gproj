@@ -8,6 +8,7 @@ import {
   type ResourceOwns,
 } from "../format/schema.js";
 import { sanitize } from "../redact/sanitize.js";
+import { relatedCandidates } from "./candidates.js";
 import { getAll, writeAll } from "./manifest.js";
 import { renderOkfBundle } from "./okf.js";
 import { resolveSchemaSource } from "./schemaSource.js";
@@ -17,6 +18,7 @@ const defaultConcurrency = 1;
 const defaultMaxExcerptChars = 1200;
 const defaultMaxIndexEntries = 500;
 const defaultMaxIndexChars = 16000;
+const defaultCandidateCount = 6;
 const MAX_ENRICHMENT_ENTRIES = 1000;
 
 const PlannerOwnsSchema = z.object({
@@ -160,6 +162,11 @@ function plannerPack(batch: ResourceCard[], allCards: ResourceCard[], options: R
       id: card.id,
       title: card.title,
       excerpt: cardExcerpt(card, options.maxExcerptChars),
+      candidates: relatedCandidates(card, allCards, defaultCandidateCount).map((candidate) => ({
+        id: candidate.id,
+        title: candidate.title,
+        why: candidate.reasons.join("; "),
+      })),
     })),
     linkTargets: linkTargets.index,
     omittedLinkTargets: linkTargets.omitted,
@@ -172,7 +179,8 @@ function plannerInstruction(): string {
     "Return strict JSON only: an object keyed by resource id.",
     "Each value must match exactly these fields: category optional string, tags string[], intent optional string, owns { symbols?: string[], endpoints?: string[], configKeys?: string[] }, schemaSource string[], links { rel, toId }[].",
     "Allowed rel values: defines, references, relates-to, depends-on.",
-    "Use only toId values present in linkTargets. Do not invent ids.",
+    "Each card includes a `candidates` list of likely-related cards (with why). Link a card to a candidate when the relationship is genuine, choosing the rel (defines|references|relates-to|depends-on); prefer candidates over the flat linkTargets, but you may use linkTargets for cross-topic links. Do not invent ids.",
+    "Use only toId values present in a card's candidates or linkTargets. Do not invent ids.",
     "Do not include visibility, body, resource, sourcePaths, contentHash, contentSize, or fields outside the enrichment schema.",
   ].join("\n");
 }

@@ -97,8 +97,18 @@ describe("resources enrich", () => {
 
     expect(result.summary).toEqual({ selected: 2, enriched: 2, skipped: 0, failed: 0, unchanged: 0 });
     expect(seenPacks[0].cards).toEqual([
-      { id: "r1", title: "Auth Notes", excerpt: "excerpt r1" },
-      { id: "r2", title: "Target", excerpt: "excerpt r2" },
+      {
+        id: "r1",
+        title: "Auth Notes",
+        excerpt: "excerpt r1",
+        candidates: [{ id: "r2", title: "Target", why: "same category" }],
+      },
+      {
+        id: "r2",
+        title: "Target",
+        excerpt: "excerpt r2",
+        candidates: [{ id: "r1", title: "Auth Notes", why: "same category" }],
+      },
     ]);
     expect(seenPacks[0].linkTargets).toEqual({ r1: "Auth Notes", r2: "Target" });
     expect(enriched?.tags).toContain("alpha");
@@ -171,6 +181,42 @@ describe("resources enrich", () => {
     expect(forced.summary).toEqual({ selected: 1, enriched: 1, skipped: 0, failed: 0, unchanged: 0 });
     expect(calls).toEqual([["a"], ["a"]]);
     expect(getAll(root).find((item) => item.id === "c")?.enrichedAt).toBeUndefined();
+  });
+
+  it("includes related candidates in the planner pack for each batch card", async () => {
+    writeAll(root, [
+      card("r1", {
+        title: "Auth Notes",
+        tags: ["auth", "login"],
+        owns: { symbols: ["AuthService"], endpoints: [], configKeys: [] },
+      }),
+      card("r2", {
+        title: "Auth Flow",
+        tags: ["AUTH"],
+        owns: { symbols: ["authservice"], endpoints: [], configKeys: [] },
+      }),
+      card("r3", {
+        title: "Billing Notes",
+        category: "finance",
+        tags: ["invoice"],
+      }),
+    ]);
+    let capturedPack: { cards: Array<{ id: string; candidates?: Array<{ id: string; title: string; why: string }> }> } | undefined;
+
+    await enrichResources(root, {
+      planner: planner((req) => {
+        capturedPack = JSON.parse(req.pack) as typeof capturedPack;
+        return Object.fromEntries(idsFromPack(req).map((id) => [id, validEnrichment()]));
+      }),
+      batchSize: 2,
+      limit: 2,
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    const packedR1 = capturedPack?.cards.find((packedCard) => packedCard.id === "r1");
+    expect(packedR1?.candidates).toEqual([
+      { id: "r2", title: "Auth Flow", why: "tags: auth; same category; owns: AuthService" },
+    ]);
   });
 
   it("keeps dry-run side-effect free while reporting proposed changes", async () => {
