@@ -421,7 +421,13 @@ async function enrich(root: string, args: string[], deps: ResourcesDeps): Promis
     reenrich: options.reenrich,
     now: deps.now,
   });
-  return renderEnrichResult(result);
+  const output = renderEnrichResult(result);
+  if (!result.summary.halted) return output;
+  const pending = Math.max(0, result.summary.selected - result.summary.enriched);
+  return [
+    output,
+    `Planner unavailable (ChatGPT Pro limit / model unavailable). Enriched ${result.summary.enriched}; ${pending} pending — nothing lost. Re-run \`gproj resources enrich\` later, or use GPROJ_PLANNER=openai-responses.`,
+  ].join("\n");
 }
 
 function linkResource(root: string, args: string[]): string {

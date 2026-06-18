@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { makeOracleBrowserBackend, parseOracleAnswer } from "../../src/backends/oracleBrowser.js";
+import { PlannerUnavailableError } from "../../src/backends/planner.js";
+import { makeOracleBrowserBackend, makeResilientOracleSpawn, oracleArgv, parseOracleAnswer } from "../../src/backends/oracleBrowser.js";
+
+function unavailableError(message: string): Error {
+  const err = new Error(message);
+  (err as { unavailable?: boolean }).unavailable = true;
+  return err;
+}
 
 describe("oracle-browser planner", () => {
   it("passes the pack as context and returns the answer text", async () => {
@@ -48,5 +55,41 @@ describe("oracle-browser planner", () => {
     const stdout = "\nAnswer:\nfinal answer\n\n38.6s · gpt-5.5-pro[browser] · ↑20 ↓1 ↻0 Δ21";
 
     expect(parseOracleAnswer(stdout)).toBe("final answer");
+  });
+
+  it("falls back to current strategy when the configured strategy is unavailable", async () => {
+    const strategies: string[] = [];
+    const spawn = makeResilientOracleSpawn(async (_args, strategy) => {
+      strategies.push(strategy);
+      if (strategies.length === 1) throw unavailableError("resolved=(unavailable)");
+      return "OK";
+    });
+    const b = makeOracleBrowserBackend(spawn);
+
+    await expect(b.ask({ pack: "CTX BODY", instruction: "plan phase 1", mode: "plan" })).resolves.toBe("OK");
+    expect(strategies).toEqual(["select", "current"]);
+  });
+
+  it("throws a typed unavailable error when current strategy is also unavailable", async () => {
+    const spawn = makeResilientOracleSpawn(async () => {
+      throw unavailableError("usage limit");
+    });
+    const b = makeOracleBrowserBackend(spawn);
+
+    await expect(b.ask({ pack: "CTX BODY", instruction: "plan phase 1", mode: "plan" })).rejects.toBeInstanceOf(PlannerUnavailableError);
+  });
+
+  it("includes the browser model strategy in oracle argv", () => {
+    expect(oracleArgv("/tmp/context.md", "prompt", "current")).toEqual([
+      "--render-plain",
+      "--no-notify",
+      "--no-notify-sound",
+      "--browser-model-strategy",
+      "current",
+      "--file",
+      "/tmp/context.md",
+      "-p",
+      "prompt",
+    ]);
   });
 });

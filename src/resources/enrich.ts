@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PlannerBackend } from "../backends/planner.js";
+import { PlannerUnavailableError, type PlannerBackend } from "../backends/planner.js";
 import {
   ResourceCardSchema,
   ResourceRelationSchema,
@@ -56,10 +56,13 @@ export interface EnrichOptions {
 }
 
 export interface EnrichSummary {
+  selected: number;
   enriched: number;
   skipped: number;
   failed: number;
   unchanged: number;
+  halted?: boolean;
+  haltReason?: string;
 }
 
 export interface EnrichResult {
@@ -83,6 +86,7 @@ interface PreparedBatchFailure {
   totalBatches: number;
   cards: ResourceCard[];
   reason: string;
+  unavailable: boolean;
   latencyMs: number;
 }
 
@@ -304,6 +308,7 @@ async function prepareBatch(
       totalBatches,
       cards: batch,
       reason,
+      unavailable: error instanceof PlannerUnavailableError,
       latencyMs: Date.now() - startedAt,
     };
   }
@@ -368,7 +373,7 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
     .slice(0, options.limit);
   const batches = chunk(candidates, batchSize);
   const events: Array<Record<string, unknown>> = [];
-  const summary: EnrichSummary = { enriched: 0, skipped, failed: 0, unchanged: 0 };
+  const summary: EnrichSummary = { selected: candidates.length, enriched: 0, skipped, failed: 0, unchanged: 0 };
   const knownIds = new Set(allCards.map((card) => card.id));
   const enrichedAt = (options.now ?? new Date()).toISOString();
   const packOptions = {
@@ -390,9 +395,14 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
 
   for (let index = 0; index < batches.length; index += 1) {
     const result = await prepared[index];
-    startNext();
     if (!result) continue;
     if (!result.ok) {
+      if (result.unavailable) {
+        summary.halted = true;
+        summary.haltReason = result.reason;
+        events.push({ event: "halted", reason: result.reason });
+        break;
+      }
       summary.failed += result.cards.length;
       events.push({
         event: "batch-failed",
@@ -404,6 +414,7 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
         latencyMs: result.latencyMs,
         cardIds: result.cards.map((card) => card.id),
       });
+      startNext();
       continue;
     }
 
@@ -420,15 +431,19 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
       failed: 0,
       latencyMs: result.latencyMs,
     });
+    startNext();
   }
 
   events.push({
     event: "summary",
     dryRun,
+    selected: summary.selected,
     enriched: summary.enriched,
     skipped: summary.skipped,
     failed: summary.failed,
     unchanged: summary.unchanged,
+    halted: summary.halted === true,
+    ...(summary.haltReason !== undefined ? { haltReason: summary.haltReason } : {}),
   });
 
   return { dryRun, events, summary };

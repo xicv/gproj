@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PlannerAsk, PlannerBackend } from "../../src/backends/planner.js";
+import { PlannerUnavailableError, type PlannerAsk, type PlannerBackend } from "../../src/backends/planner.js";
 import { resourcesIndexPath, resourcesManifestPath } from "../../src/format/paths.js";
 import type { ResourceCard } from "../../src/format/schema.js";
 import { enrichResources } from "../../src/resources/enrich.js";
@@ -95,7 +95,7 @@ describe("resources enrich", () => {
     const byId = new Map(getAll(root).map((item) => [item.id, item]));
     const enriched = byId.get("r1");
 
-    expect(result.summary).toEqual({ enriched: 2, skipped: 0, failed: 0, unchanged: 0 });
+    expect(result.summary).toEqual({ selected: 2, enriched: 2, skipped: 0, failed: 0, unchanged: 0 });
     expect(seenPacks[0].cards).toEqual([
       { id: "r1", title: "Auth Notes", excerpt: "excerpt r1" },
       { id: "r2", title: "Target", excerpt: "excerpt r2" },
@@ -166,9 +166,9 @@ describe("resources enrich", () => {
       now: new Date("2026-06-18T02:00:00.000Z"),
     });
 
-    expect(first.summary).toEqual({ enriched: 1, skipped: 1, failed: 0, unchanged: 0 });
-    expect(second.summary).toEqual({ enriched: 0, skipped: 2, failed: 0, unchanged: 0 });
-    expect(forced.summary).toEqual({ enriched: 1, skipped: 0, failed: 0, unchanged: 0 });
+    expect(first.summary).toEqual({ selected: 1, enriched: 1, skipped: 1, failed: 0, unchanged: 0 });
+    expect(second.summary).toEqual({ selected: 0, enriched: 0, skipped: 2, failed: 0, unchanged: 0 });
+    expect(forced.summary).toEqual({ selected: 1, enriched: 1, skipped: 0, failed: 0, unchanged: 0 });
     expect(calls).toEqual([["a"], ["a"]]);
     expect(getAll(root).find((item) => item.id === "c")?.enrichedAt).toBeUndefined();
   });
@@ -183,7 +183,7 @@ describe("resources enrich", () => {
       now: new Date("2026-06-18T01:00:00.000Z"),
     });
 
-    expect(result.summary).toEqual({ enriched: 1, skipped: 0, failed: 0, unchanged: 0 });
+    expect(result.summary).toEqual({ selected: 1, enriched: 1, skipped: 0, failed: 0, unchanged: 0 });
     expect(result.events.some((event) => event.event === "card-change")).toBe(true);
     expect(readFileSync(resourcesManifestPath(root), "utf8")).toBe(before);
     expect(getAll(root)[0].enrichedAt).toBeUndefined();
@@ -231,7 +231,7 @@ describe("resources enrich", () => {
     });
 
     const byId = new Map(getAll(root).map((item) => [item.id, item]));
-    expect(result.summary).toEqual({ enriched: 2, skipped: 0, failed: 1, unchanged: 0 });
+    expect(result.summary).toEqual({ selected: 3, enriched: 2, skipped: 0, failed: 1, unchanged: 0 });
     expect(result.events.find((event) => event.event === "batch-failed")?.reason).toContain("invalid enrichment for r1");
     expect(byId.get("r1")?.enrichedAt).toBeUndefined();
     expect(byId.get("r2")?.enrichedAt).toBe("2026-06-18T01:00:00.000Z");
@@ -263,6 +263,42 @@ describe("resources enrich", () => {
     expect(byId.get("r1")?.enrichedAt).toBe("2026-06-18T01:00:00.000Z");
     expect(byId.get("r2")?.enrichedAt).toBe("2026-06-18T02:00:00.000Z");
     expect(byId.get("r1")?.links?.filter((link) => link.toId === "r2")).toHaveLength(1);
+  });
+
+  it("halts on planner unavailability after preserving committed batches", async () => {
+    writeAll(root, [card("r1"), card("r2"), card("r3")]);
+    const calls: string[][] = [];
+
+    const result = await enrichResources(root, {
+      planner: planner((req, call) => {
+        const ids = idsFromPack(req);
+        calls.push(ids);
+        if (call >= 2) throw new PlannerUnavailableError("oracle-browser failed: usage limit");
+        return { r1: validEnrichment({ tags: ["first"] }) };
+      }),
+      batchSize: 1,
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    const byId = new Map(getAll(root).map((item) => [item.id, item]));
+    expect(calls).toEqual([["r1"], ["r2"]]);
+    expect(result.summary).toEqual({
+      selected: 3,
+      enriched: 1,
+      skipped: 0,
+      failed: 0,
+      unchanged: 0,
+      halted: true,
+      haltReason: "oracle-browser failed: usage limit",
+    });
+    expect(result.events.find((event) => event.event === "halted")).toEqual({
+      event: "halted",
+      reason: "oracle-browser failed: usage limit",
+    });
+    expect(byId.get("r1")?.tags).toContain("first");
+    expect(byId.get("r1")?.enrichedAt).toBe("2026-06-18T01:00:00.000Z");
+    expect(byId.get("r2")?.enrichedAt).toBeUndefined();
+    expect(byId.get("r3")?.enrichedAt).toBeUndefined();
   });
 
   it("keeps planner calls within the configured concurrency limit", async () => {
