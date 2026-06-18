@@ -8,15 +8,17 @@ import {
   ResourceRelationSchema,
   type ResourceCard,
   type ResourceLink,
+  type ResourceOwns,
 } from "../format/schema.js";
 import { renderResourceDoctor } from "../resources/doctor.js";
 import { importResource } from "../resources/import.js";
 import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manifest.js";
 import { organiseResources, renderOrganiseResult } from "../resources/organise.js";
-import { renderOkfBundle } from "../resources/okf.js";
+import { buildOkfIndex, readOkfIndex, renderOkfBundle, writeOkfIndex, type OkfIndexEntry } from "../resources/okf.js";
+import { resolveSchemaSources, type SchemaSourceResolution } from "../resources/schemaSource.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | link <fromId> <rel> <toId> | rm <id> | doctor";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor";
 }
 
 function parseCategory(args: string[]): string | undefined {
@@ -37,6 +39,9 @@ interface AddArgs {
   type?: string;
   tags?: string[];
   links?: ResourceLink[];
+  intent?: string;
+  owns?: ResourceOwns;
+  schemaSource?: string[];
 }
 
 function normalizeTags(value: string): string[] {
@@ -71,6 +76,18 @@ function stringValues(value: string | boolean | string[] | undefined): string[] 
   throw new Error(usage());
 }
 
+function optionalString(value: string | boolean | string[] | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(usage());
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function ownsFromArgs(symbols: string[], endpoints: string[], configKeys: string[]): ResourceOwns | undefined {
+  if (symbols.length === 0 && endpoints.length === 0 && configKeys.length === 0) return undefined;
+  return { symbols, endpoints, configKeys };
+}
+
 function parseAddArgs(args: string[]): AddArgs {
   const parsed = parseArgs({
     args,
@@ -81,11 +98,20 @@ function parseAddArgs(args: string[]): AddArgs {
       type: { type: "string" },
       tags: { type: "string" },
       link: { type: "string", multiple: true },
+      intent: { type: "string" },
+      "owns-symbol": { type: "string", multiple: true },
+      "owns-endpoint": { type: "string", multiple: true },
+      "owns-config": { type: "string", multiple: true },
+      "schema-source": { type: "string", multiple: true },
     },
   });
   if (parsed.positionals.length !== 1) throw new Error(usage());
   const tags = typeof parsed.values.tags === "string" ? normalizeTags(parsed.values.tags) : undefined;
   const links = stringValues(parsed.values.link).map(parseLink);
+  const ownsSymbols = stringValues(parsed.values["owns-symbol"]);
+  const ownsEndpoints = stringValues(parsed.values["owns-endpoint"]);
+  const ownsConfigKeys = stringValues(parsed.values["owns-config"]);
+  const schemaSource = stringValues(parsed.values["schema-source"]);
   return {
     path: parsed.positionals[0],
     category: typeof parsed.values.category === "string" ? parsed.values.category : undefined,
@@ -93,6 +119,9 @@ function parseAddArgs(args: string[]): AddArgs {
     type: typeof parsed.values.type === "string" ? parsed.values.type : undefined,
     tags,
     links: links.length > 0 ? links : undefined,
+    intent: optionalString(parsed.values.intent),
+    owns: ownsFromArgs(ownsSymbols, ownsEndpoints, ownsConfigKeys),
+    schemaSource: schemaSource.length > 0 ? schemaSource : undefined,
   };
 }
 
@@ -104,6 +133,9 @@ function addResource(root: string, args: string[]): string {
     type: options.type,
     tags: options.tags,
     links: options.links,
+    intent: options.intent,
+    owns: options.owns,
+    schemaSource: options.schemaSource,
   }));
   renderOkfBundle(root, getAll(root));
   appendJournal(root, { phase: 0, event: "resource-added", status: "added", detail: card.id });
@@ -125,24 +157,169 @@ function showResource(root: string, args: string[]): string {
   return JSON.stringify(ResourceCardSchema.parse(card), null, 2);
 }
 
+interface RankedResource {
+  entry: OkfIndexEntry;
+  priority: number;
+  score: number;
+  field: string;
+  reason: string;
+}
+
+function tokens(value: string): string[] {
+  return value.toLowerCase().split(/[^a-z0-9_.:/-]+/).filter(Boolean);
+}
+
+function phraseScore(value: string | undefined, query: string): number {
+  if (!value) return 0;
+  const haystack = value.toLowerCase();
+  const needle = query.toLowerCase();
+  if (haystack === needle) return 1000 + needle.length;
+  if (haystack.includes(needle)) return 800 + needle.length;
+  const queryTokens = tokens(query);
+  if (queryTokens.length === 0) return 0;
+  const matched = queryTokens.filter((token) => haystack.includes(token)).length;
+  if (matched === 0) return 0;
+  return matched * 100 + (matched === queryTokens.length ? 50 : 0);
+}
+
+function exactOwnsMatch(entry: OkfIndexEntry, query: string): RankedResource | null {
+  const queryLower = query.toLowerCase();
+  const fields = [
+    { name: "owns.symbols", values: entry.owns?.symbols ?? [] },
+    { name: "owns.endpoints", values: entry.owns?.endpoints ?? [] },
+    { name: "owns.configKeys", values: entry.owns?.configKeys ?? [] },
+  ];
+  for (const [fieldIndex, field] of fields.entries()) {
+    const valueIndex = field.values.findIndex((value) => value === query || value.toLowerCase() === queryLower);
+    if (valueIndex >= 0) {
+      const value = field.values[valueIndex];
+      return {
+        entry,
+        priority: 1,
+        score: 1000 - fieldIndex * 100 - valueIndex,
+        field: field.name,
+        reason: `${field.name}:${value}`,
+      };
+    }
+  }
+  return null;
+}
+
+function titleMatch(entry: OkfIndexEntry, query: string): RankedResource | null {
+  const score = phraseScore(entry.title, query);
+  if (score === 0) return null;
+  return { entry, priority: 3, score, field: "title", reason: `title:${entry.title}` };
+}
+
+function tagsMatch(entry: OkfIndexEntry, query: string): RankedResource | null {
+  const queryLower = query.toLowerCase();
+  const index = entry.tags.findIndex((tag) => tag.toLowerCase() === queryLower || tag.toLowerCase().includes(queryLower));
+  if (index < 0) return null;
+  const tag = entry.tags[index];
+  return {
+    entry,
+    priority: 4,
+    score: tag.toLowerCase() === queryLower ? 1000 - index : 500 - index,
+    field: "tags",
+    reason: `tags:${tag}`,
+  };
+}
+
+function bodyMatch(entry: OkfIndexEntry, card: ResourceCard | undefined, query: string): RankedResource | null {
+  if (!card) return null;
+  const queryLower = query.toLowerCase();
+  const fields = [
+    { name: "excerpt", value: card.excerpt },
+    { name: "body", value: card.body },
+    { name: "description", value: card.description },
+  ];
+  for (const [index, field] of fields.entries()) {
+    if (field.value?.toLowerCase().includes(queryLower)) {
+      return {
+        entry,
+        priority: 5,
+        score: 1000 - index,
+        field: field.name,
+        reason: `${field.name}:substring`,
+      };
+    }
+  }
+  return null;
+}
+
+function bestResourceMatch(entry: OkfIndexEntry, card: ResourceCard | undefined, query: string): RankedResource | null {
+  const owns = exactOwnsMatch(entry, query);
+  if (owns) return owns;
+
+  const intentScore = phraseScore(entry.intent, query);
+  if (intentScore > 0) {
+    return { entry, priority: 2, score: intentScore, field: "intent", reason: `intent:${entry.intent ?? ""}` };
+  }
+
+  return titleMatch(entry, query) ?? tagsMatch(entry, query) ?? bodyMatch(entry, card, query);
+}
+
+function compareRanked(a: RankedResource, b: RankedResource): number {
+  return a.priority - b.priority ||
+    b.score - a.score ||
+    a.entry.category.localeCompare(b.entry.category) ||
+    a.entry.title.localeCompare(b.entry.title) ||
+    a.entry.id.localeCompare(b.entry.id);
+}
+
+function renderFindResult(match: RankedResource): string {
+  const entry = match.entry;
+  return `${entry.id}\t${entry.category}\t${entry.type}\t${entry.title}\tmatch=${match.reason}\tfield=${match.field}`;
+}
+
 function findResources(root: string, args: string[]): string {
   if (args.length !== 1) throw new Error(usage());
-  const query = args[0].toLowerCase();
-  const matches = getAll(root).filter((card) => {
-    const haystack = [
-      card.id,
-      card.type,
-      card.title,
-      card.category,
-      ...(card.tags ?? []),
-      ...(card.sourcePaths ?? []),
-      card.excerpt ?? "",
-      card.description ?? "",
-    ].join("\n").toLowerCase();
-    return haystack.includes(query);
-  });
+  const query = args[0].trim();
+  if (!query) throw new Error(usage());
+  const cards = getAll(root);
+  const byId = new Map(cards.map((card) => [card.id, card]));
+  const entries = readOkfIndex(root) ?? buildOkfIndex(cards);
+  const matches = entries
+    .flatMap((entry) => {
+      const match = bestResourceMatch(entry, byId.get(entry.id), query);
+      return match ? [match] : [];
+    })
+    .sort(compareRanked);
   if (matches.length === 0) return "resources: none";
-  return matches.map(renderSummary).join("\n");
+  return matches.map(renderFindResult).join("\n");
+}
+
+function renderSchemaResolution(resolution: SchemaSourceResolution): string {
+  switch (resolution.status) {
+    case "resolved": {
+      const match = resolution.matches[0];
+      return `${match.path}:${match.line}\t${resolution.symbol}`;
+    }
+    case "missing-file":
+      return `warning: ${resolution.pointer}: missing file`;
+    case "missing-symbol":
+      return `warning: ${resolution.pointer}: missing symbol`;
+    case "ambiguous":
+      return `warning: ${resolution.pointer}: ambiguous match (${resolution.matches.length})`;
+    case "invalid":
+      return `warning: ${resolution.pointer}: invalid schemaSource`;
+  }
+}
+
+function schemaResource(root: string, args: string[]): string {
+  if (args.length !== 1) throw new Error(usage());
+  const id = args[0];
+  const card = getAll(root).find((candidate) => candidate.id === id);
+  if (!card) throw new Error(`resource not found: ${id}`);
+  const sources = card.schemaSource ?? [];
+  if (sources.length === 0) return "resource schema: none";
+  return resolveSchemaSources(root, sources).map(renderSchemaResolution).join("\n");
+}
+
+function indexResources(root: string, args: string[]): string {
+  if (args.length !== 0) throw new Error(usage());
+  writeOkfIndex(root, getAll(root));
+  return ".gproj/resources/.okf-index.json";
 }
 
 function parseOrganiseArgs(args: string[]): { dir: string; dryRun: boolean; deleteDuplicates: boolean; category?: string } {
@@ -228,6 +405,10 @@ export function runResources(root: string, args: string[]): string {
       return showResource(root, rest);
     case "find":
       return findResources(root, rest);
+    case "schema":
+      return schemaResource(root, rest);
+    case "index":
+      return indexResources(root, rest);
     case "link":
       return linkResource(root, rest);
     case "rm":
@@ -242,7 +423,7 @@ export function runResources(root: string, args: string[]): string {
 
 export function isResourcesMutation(args: string[]): boolean {
   const [verb, ...rest] = args;
-  if (verb === "add" || verb === "link" || verb === "rm") return true;
+  if (verb === "add" || verb === "link" || verb === "rm" || verb === "index") return true;
   if (verb !== "organise") return false;
   try {
     return !parseOrganiseArgs(rest).dryRun;

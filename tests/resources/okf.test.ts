@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resourcesBundleDir } from "../../src/format/paths.js";
+import { resourcesBundleDir, resourcesIndexPath } from "../../src/format/paths.js";
 import { type ResourceCard } from "../../src/format/schema.js";
-import { renderOkfBundle, renderOkfFiles } from "../../src/resources/okf.js";
+import { buildOkfIndex, renderOkfBundle, renderOkfFiles } from "../../src/resources/okf.js";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "gproj-")); });
@@ -61,6 +61,41 @@ describe("OKF resource projection", () => {
     expect(first.get("docs/r1.md")).toContain("rel: \"references\"");
     expect(first.get("docs/r1.md")).toContain("- [Cloud API Spec](../dji-cloud-api/r2.md)");
     expect(first.get("docs/r1.md")).not.toContain("- references: r2");
+  });
+
+  it("projects retrieval metadata into frontmatter and the OKF index", () => {
+    const card: ResourceCard = {
+      id: "auth",
+      type: "text",
+      title: "Auth Reference",
+      category: "docs",
+      tags: ["auth"],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      body: "FULL BODY SHOULD STAY OUT OF INDEX",
+      excerpt: "excerpt should stay out of index",
+      intent: "auth error handling",
+      owns: {
+        symbols: ["AuthService.login"],
+        endpoints: ["POST /login"],
+        configKeys: ["auth.retry"],
+      },
+      schemaSource: ["src/auth.ts:AuthService"],
+      contentHash: "a".repeat(64),
+    };
+
+    renderOkfBundle(root, [card]);
+
+    const markdown = readFileSync(join(resourcesBundleDir(root), "docs", "auth.md"), "utf8");
+    expect(markdown).toContain("intent: \"auth error handling\"");
+    expect(markdown).toContain("owns:");
+    expect(markdown).toContain("    - \"AuthService.login\"");
+    expect(markdown).toContain("schemaSource:");
+    expect(markdown).toContain("  - \"src/auth.ts:AuthService\"");
+
+    const index = JSON.parse(readFileSync(resourcesIndexPath(root), "utf8"));
+    expect(index).toEqual(buildOkfIndex([card]));
+    expect(readFileSync(resourcesIndexPath(root), "utf8")).not.toContain("FULL BODY");
+    expect(readFileSync(resourcesIndexPath(root), "utf8")).not.toContain("excerpt should stay out of index");
   });
 
   it("omits missing related targets without failing projection", () => {

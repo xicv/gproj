@@ -77,4 +77,29 @@ describe("resources doctor", () => {
     expect(messages).toContain("contentHash drift for asset asset: _assets/asset.bin");
     expect(messages).toContain("OKF bundle drift: content mismatch assets/asset.md");
   });
+
+  it("detects schemaSource broken references, drift, and ambiguous matches", () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "auth.ts"), [
+      "export class AuthService {}",
+      "export const duplicate = 1;",
+      "const duplicate = 2;",
+    ].join("\n"));
+    const cards: ResourceCard[] = [{
+      ...card("auth"),
+      schemaSource: [
+        "src/missing.ts:AuthService",
+        "src/auth.ts:MissingSymbol",
+        "src/auth.ts:duplicate",
+      ],
+    }];
+    writeAll(root, cards);
+    renderOkfBundle(root, cards);
+
+    const messages = diagnoseResources(root).map((diagnostic) => diagnostic.message);
+
+    expect(messages).toContain("schemaSource broken reference for auth: src/missing.ts:AuthService (missing file)");
+    expect(messages).toContain("schemaSource drift for auth: src/auth.ts:MissingSymbol (missing symbol)");
+    expect(messages).toContain("schemaSource ambiguous match for auth: src/auth.ts:duplicate (2 matches)");
+  });
 });

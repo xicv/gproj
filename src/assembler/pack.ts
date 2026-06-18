@@ -37,12 +37,30 @@ function latestReview(root: string, phase: number): string | null {
 }
 
 const maxResourcesPerCategory = 5;
-const resourceExcerptLimit = 160;
+const maxOwnsValuesPerKind = 3;
+const ownsValueLimit = 48;
+const intentLimit = 96;
 
 function truncateInline(value: string, max: number): string {
   const compact = value.replace(/\s+/g, " ").trim();
   if (compact.length <= max) return compact;
   return `${compact.slice(0, max - 3).trimEnd()}...`;
+}
+
+function ownsPart(label: string, values: string[] | undefined): string | null {
+  if (!values || values.length === 0) return null;
+  const shown = values.slice(0, maxOwnsValuesPerKind).map((value) => truncateInline(value, ownsValueLimit));
+  const more = values.length > shown.length ? `,+${values.length - shown.length}` : "";
+  return `${label}:${shown.join("|")}${more}`;
+}
+
+function renderOwnsSummary(resource: { owns?: { symbols: string[]; endpoints: string[]; configKeys: string[] } }): string {
+  const parts = [
+    ownsPart("symbols", resource.owns?.symbols),
+    ownsPart("endpoints", resource.owns?.endpoints),
+    ownsPart("configKeys", resource.owns?.configKeys),
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? ` owns[${parts.join("; ")}]` : "";
 }
 
 function renderResourceHints(root: string): string | null {
@@ -64,8 +82,8 @@ function renderResourceHints(root: string): string | null {
       const links = resourceLinks.length
         ? ` [${resourceLinks.map((link) => `${link.rel}:${link.toId}`).join(", ")}]`
         : "";
-      const excerpt = resource.excerpt ? ` - ${truncateInline(resource.excerpt, resourceExcerptLimit)}` : "";
-      lines.push(`- ${resource.title} (${resource.type}) -> .gproj/resources/${okfCardPath(resource)}${tags}${links}${excerpt}`);
+      const intent = resource.intent ? ` intent="${truncateInline(resource.intent, intentLimit)}"` : "";
+      lines.push(`- ${resource.title} (${resource.type}) -> .gproj/resources/${okfCardPath(resource)}${tags}${links}${intent}${renderOwnsSummary(resource)}`);
     }
   }
   return lines.join("\n");

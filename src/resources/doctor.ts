@@ -4,6 +4,7 @@ import { resourcesBundleDir, resourcesManifestPath } from "../format/paths.js";
 import { ResourceCardSchema, type ResourceCard } from "../format/schema.js";
 import { normalizeText, sha256, toPosix } from "./import.js";
 import { listOkfMarkdownFiles, renderOkfFiles } from "./okf.js";
+import { resolveSchemaSource } from "./schemaSource.js";
 
 export interface ResourceDiagnostic {
   level: "warning";
@@ -123,6 +124,32 @@ function diagnoseOrphans(cards: ResourceCard[]): ResourceDiagnostic[] {
     .map((card) => warning(`orphaned resource card: ${card.id}`));
 }
 
+function diagnoseSchemaSources(root: string, cards: ResourceCard[]): ResourceDiagnostic[] {
+  const diagnostics: ResourceDiagnostic[] = [];
+  for (const card of cards) {
+    for (const pointer of card.schemaSource ?? []) {
+      const resolution = resolveSchemaSource(root, pointer);
+      switch (resolution.status) {
+        case "resolved":
+          break;
+        case "missing-file":
+          diagnostics.push(warning(`schemaSource broken reference for ${card.id}: ${pointer} (missing file)`));
+          break;
+        case "missing-symbol":
+          diagnostics.push(warning(`schemaSource drift for ${card.id}: ${pointer} (missing symbol)`));
+          break;
+        case "ambiguous":
+          diagnostics.push(warning(`schemaSource ambiguous match for ${card.id}: ${pointer} (${resolution.matches.length} matches)`));
+          break;
+        case "invalid":
+          diagnostics.push(warning(`schemaSource broken reference for ${card.id}: ${pointer} (invalid pointer)`));
+          break;
+      }
+    }
+  }
+  return diagnostics;
+}
+
 function diagnoseBundle(root: string, cards: ResourceCard[]): ResourceDiagnostic[] {
   const diagnostics: ResourceDiagnostic[] = [];
   const bundleDir = resourcesBundleDir(root);
@@ -181,6 +208,7 @@ export function diagnoseResources(root: string): ResourceDiagnostic[] {
     ...diagnoseAssets(root, cards),
     ...diagnoseContentHash(cards),
     ...diagnoseOrphans(cards),
+    ...diagnoseSchemaSources(root, cards),
     ...diagnoseBundle(root, cards),
     ...diagnoseCategoryDirectories(root, cards),
   ];

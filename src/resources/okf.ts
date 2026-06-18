@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
-import { gprojDir, resourcesBundleDir } from "../format/paths.js";
-import { ResourceCardSchema, type ResourceCard } from "../format/schema.js";
+import { gprojDir, resourcesBundleDir, resourcesIndexPath } from "../format/paths.js";
+import { ResourceCardSchema, type ResourceCard, type ResourceOwns } from "../format/schema.js";
 
 interface RenderedCard {
   card: ResourceCard;
@@ -28,6 +28,11 @@ function yamlArray(name: string, values: string[]): string[] {
   return [`${name}:`, ...values.map((value) => `  - ${yamlString(value)}`)];
 }
 
+function yamlNestedArray(name: string, values: string[]): string[] {
+  if (values.length === 0) return [`  ${name}: []`];
+  return [`  ${name}:`, ...values.map((value) => `    - ${yamlString(value)}`)];
+}
+
 function yamlLinks(card: ResourceCard): string[] {
   const links = card.links ?? [];
   if (links.length === 0) return ["links: []"];
@@ -37,6 +42,15 @@ function yamlLinks(card: ResourceCard): string[] {
       `  - rel: ${yamlString(link.rel)}`,
       `    toId: ${yamlString(link.toId)}`,
     ]),
+  ];
+}
+
+function yamlOwns(owns: ResourceOwns): string[] {
+  return [
+    "owns:",
+    ...yamlNestedArray("symbols", owns.symbols),
+    ...yamlNestedArray("endpoints", owns.endpoints),
+    ...yamlNestedArray("configKeys", owns.configKeys),
   ];
 }
 
@@ -57,6 +71,9 @@ function frontmatter(card: ResourceCard): string {
   if (card.sourcePaths !== undefined) lines.push(...yamlArray("sourcePaths", card.sourcePaths));
   if (card.contentHash !== undefined) lines.push(`contentHash: ${yamlString(card.contentHash)}`);
   if (card.contentSize !== undefined) lines.push(`contentSize: ${card.contentSize}`);
+  if (card.intent !== undefined) lines.push(`intent: ${yamlString(card.intent)}`);
+  if (card.owns !== undefined) lines.push(...yamlOwns(card.owns));
+  if (card.schemaSource !== undefined) lines.push(...yamlArray("schemaSource", card.schemaSource));
   lines.push(...yamlLinks(card));
   lines.push("---");
   return lines.join("\n");
@@ -112,6 +129,84 @@ function renderedCards(cards: ResourceCard[]): RenderedCard[] {
 export function okfCardPath(card: ResourceCard): string {
   const parsed = ResourceCardSchema.parse(card);
   return `${segment(parsed.category)}/${segment(parsed.id)}.md`;
+}
+
+export interface OkfIndexEntry {
+  id: string;
+  type: string;
+  title: string;
+  category: string;
+  tags: string[];
+  intent?: string;
+  owns?: ResourceOwns;
+  schemaSource?: string[];
+  resource: string;
+  links: Array<{ toId: string }>;
+  contentHash?: string;
+}
+
+export function buildOkfIndex(cards: ResourceCard[]): OkfIndexEntry[] {
+  return renderedCards(cards).map((item) => {
+    const links = [...(item.card.links ?? [])]
+      .sort((a, b) => a.toId.localeCompare(b.toId) || a.rel.localeCompare(b.rel))
+      .map((link) => ({ toId: link.toId }));
+    const entry: OkfIndexEntry = {
+      id: item.card.id,
+      type: item.card.type,
+      title: item.card.title,
+      category: item.card.category,
+      tags: item.card.tags,
+      resource: `${item.categoryDir}/${item.fileName}`,
+      links,
+    };
+    if (item.card.intent !== undefined) entry.intent = item.card.intent;
+    if (item.card.owns !== undefined) entry.owns = item.card.owns;
+    if (item.card.schemaSource !== undefined) entry.schemaSource = item.card.schemaSource;
+    if (item.card.contentHash !== undefined) entry.contentHash = item.card.contentHash;
+    return entry;
+  });
+}
+
+export function renderOkfIndex(cards: ResourceCard[]): string {
+  return `${JSON.stringify(buildOkfIndex(cards), null, 2)}\n`;
+}
+
+function isOkfIndexEntry(value: unknown): value is OkfIndexEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Partial<OkfIndexEntry>;
+  return typeof entry.id === "string" &&
+    typeof entry.type === "string" &&
+    typeof entry.title === "string" &&
+    typeof entry.category === "string" &&
+    Array.isArray(entry.tags) &&
+    typeof entry.resource === "string" &&
+    Array.isArray(entry.links);
+}
+
+export function readOkfIndex(root: string): OkfIndexEntry[] | null {
+  const path = resourcesIndexPath(root);
+  if (!existsSync(path)) return null;
+  const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  if (!Array.isArray(raw) || !raw.every(isOkfIndexEntry)) throw new Error(`invalid resource index: ${path}`);
+  return raw;
+}
+
+export function writeOkfIndex(root: string, cards: ResourceCard[]): void {
+  const path = resourcesIndexPath(root);
+  const tmp = `${path}.tmp-${process.pid}-${++tmpCounter}`;
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    writeFileSync(tmp, renderOkfIndex(cards), { flag: "wx" });
+    JSON.parse(readFileSync(tmp, "utf8"));
+    renameSync(tmp, path);
+  } catch (error) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // Best-effort cleanup must not hide the validation or write failure.
+    }
+    throw error;
+  }
 }
 
 function renderRootIndex(cards: RenderedCard[]): string {
@@ -218,6 +313,7 @@ export function renderOkfBundle(root: string, cards: ResourceCard[]): void {
   const parent = gprojDir(root);
   const tempDir = join(parent, `.resources.tmp-${process.pid}-${++tmpCounter}`);
   const files = renderOkfFiles(cards);
+  files.set(".okf-index.json", renderOkfIndex(cards));
 
   mkdirSync(parent, { recursive: true });
   rmSync(tempDir, { recursive: true, force: true });
@@ -239,6 +335,7 @@ export function listOkfMarkdownFiles(root: string): string[] {
   function walk(dir: string): void {
     for (const name of readdirSync(dir)) {
       if (name === "_assets") continue;
+      if (name === ".okf-index.json") continue;
       const path = join(dir, name);
       const rel = toPosix(relative(bundleDir, path));
       if (existsSync(path) && statSync(path).isDirectory()) walk(path);

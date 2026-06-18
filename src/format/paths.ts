@@ -14,6 +14,7 @@ export const statusPath = (root: string) => filePath(root, "STATUS.md");
 export const historyPath = (root: string) => filePath(root, "history.ndjson");
 export const resourcesManifestPath = (root: string) => filePath(root, "resources.ndjson");
 export const resourcesBundleDir = (root: string) => filePath(root, "resources");
+export const resourcesIndexPath = (root: string) => join(resourcesBundleDir(root), ".okf-index.json");
 export const resourceAssetDir = (root: string) => join(resourcesBundleDir(root), "_assets");
 export const statePath = (root: string) => filePath(root, "state.json");
 export const configPath = (root: string) => filePath(root, "config.json");
