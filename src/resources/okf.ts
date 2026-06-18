@@ -265,6 +265,14 @@ function copyExistingAssets(root: string, tempDir: string): void {
   cpSync(assets, join(tempDir, "_assets"), { recursive: true });
 }
 
+function copyCaptureState(root: string, tempDir: string): void {
+  const bundleDir = resourcesBundleDir(root);
+  const pending = join(bundleDir, "pending");
+  if (existsSync(pending)) cpSync(pending, join(tempDir, "pending"), { recursive: true });
+  const bookmark = join(bundleDir, ".capture-bookmark.json");
+  if (existsSync(bookmark)) cpSync(bookmark, join(tempDir, ".capture-bookmark.json"));
+}
+
 function writeFiles(tempDir: string, files: Map<string, string>): void {
   for (const [rel, content] of files) {
     const path = join(tempDir, rel);
@@ -320,6 +328,7 @@ export function renderOkfBundle(root: string, cards: ResourceCard[]): void {
   mkdirSync(tempDir, { recursive: true });
   try {
     copyExistingAssets(root, tempDir);
+    copyCaptureState(root, tempDir);
     writeFiles(tempDir, files);
     validateRenderedFiles(tempDir, files);
     swapDirectory(bundleDir, tempDir);
@@ -336,6 +345,9 @@ export function listOkfMarkdownFiles(root: string): string[] {
     for (const name of readdirSync(dir)) {
       if (name === "_assets") continue;
       if (name === ".okf-index.json") continue;
+      if (name === "pending") continue;
+      if (name === ".capture-bookmark.json") continue;
+      if (name.startsWith(".capture-") && name.endsWith(".lock")) continue;
       const path = join(dir, name);
       const rel = toPosix(relative(bundleDir, path));
       if (existsSync(path) && statSync(path).isDirectory()) walk(path);

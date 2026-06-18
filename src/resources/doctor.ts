@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, normalize, sep } from "node:path";
-import { resourcesBundleDir, resourcesManifestPath } from "../format/paths.js";
+import { resourcesBundleDir, resourcesCaptureLogPath, resourcesManifestPath } from "../format/paths.js";
 import { ResourceCardSchema, type ResourceCard } from "../format/schema.js";
 import { normalizeText, sha256, toPosix } from "./import.js";
 import { listOkfMarkdownFiles, renderOkfFiles } from "./okf.js";
@@ -198,10 +198,20 @@ function diagnoseCategoryDirectories(root: string, cards: ResourceCard[]): Resou
   return diagnostics;
 }
 
+function diagnoseCaptureLog(root: string): ResourceDiagnostic[] {
+  const path = resourcesCaptureLogPath(root);
+  if (!existsSync(path)) return [];
+  const content = readFileSync(path, "utf8").trim();
+  if (!content) return [];
+  const lastLine = content.split(/\n/).at(-1) ?? "capture failure logged";
+  return [warning(`capture failures logged: ${lastLine}`)];
+}
+
 export function diagnoseResources(root: string): ResourceDiagnostic[] {
   const manifest = readManifest(root);
   const cards = manifest.cards;
   return [
+    ...diagnoseCaptureLog(root),
     ...manifest.diagnostics,
     ...diagnoseDuplicateIds(cards),
     ...diagnoseLinks(cards),

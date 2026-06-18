@@ -15,6 +15,7 @@ interface CliIo {
 
 interface CliDeps {
   cloudSyncSpawn?: CloudSyncSpawn;
+  resourcePlanner?: import("./backends/planner.js").PlannerBackend;
 }
 
 class CliExit extends Error {
@@ -127,9 +128,19 @@ export async function runCli(
     case "resources": {
       const { isResourcesMutation, runResources } = await import("./commands/resources.js");
       if (isResourcesMutation(rest)) {
-        io.log(await withLock(root, `resources ${rest[0] ?? ""}`.trim(), () => runResources(root, rest)));
+        const output = await withLock(root, `resources ${rest[0] ?? ""}`.trim(), () => runResources(root, rest, {
+          plannerName: plannerName(root, env),
+          planner: deps.resourcePlanner,
+          env,
+        }));
+        if (output) io.log(output);
       } else {
-        io.log(runResources(root, rest));
+        const output = await runResources(root, rest, {
+          plannerName: plannerName(root, env),
+          planner: deps.resourcePlanner,
+          env,
+        });
+        if (output) io.log(output);
       }
       break;
     }
