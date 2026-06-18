@@ -13,7 +13,7 @@ import { getAll, writeAll } from "./manifest.js";
 import { renderOkfBundle } from "./okf.js";
 import { resolveSchemaSource } from "./schemaSource.js";
 
-const defaultBatchSize = 15;
+const defaultBatchSize = 8; // smaller batches keep the planner's JSON response within limits — candidate-grounded linking makes per-card output larger
 const defaultConcurrency = 1;
 const defaultMaxExcerptChars = 1200;
 const defaultMaxIndexEntries = 500;

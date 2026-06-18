@@ -157,7 +157,7 @@ export const catalogEntries: CatalogEntry[] = [
     group: "resources",
     summary: "Ask the planner to add retrieval metadata to resource cards.",
     whenToUse: "Populate missing enrichment fields for imported resources before relying on resource search and links at scale.",
-    usage: "gproj resources enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich]",
+    usage: "gproj resources enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich]",
     example: "gproj resources enrich --category docs --limit 30",
   },
   {

@@ -28,7 +28,7 @@ import { installStopHook } from "../resources/capture/hook.js";
 import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
 }
 
 export interface ResourcesDeps {
@@ -344,13 +344,24 @@ function organise(root: string, args: string[]): string {
   return renderOrganiseResult(result);
 }
 
-function parseEnrichArgs(args: string[]): { category?: string; limit?: number; dryRun: boolean; reenrich: boolean } {
+function parseEnrichBatchSize(value: string | boolean | string[] | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(usage());
+  try {
+    return parsePositiveInteger(value, "--batch-size");
+  } catch {
+    throw new Error(usage());
+  }
+}
+
+function parseEnrichArgs(args: string[]): { category?: string; limit?: number; batchSize?: number; dryRun: boolean; reenrich: boolean } {
   const parsed = parseArgs({
     args,
     allowPositionals: false,
     options: {
       category: { type: "string" },
       limit: { type: "string" },
+      "batch-size": { type: "string" },
       "dry-run": { type: "boolean", default: false },
       reenrich: { type: "boolean", default: false },
     },
@@ -358,6 +369,7 @@ function parseEnrichArgs(args: string[]): { category?: string; limit?: number; d
   return {
     category: typeof parsed.values.category === "string" ? parsed.values.category : undefined,
     limit: parsePositiveInteger(typeof parsed.values.limit === "string" ? parsed.values.limit : undefined, "--limit"),
+    batchSize: parseEnrichBatchSize(parsed.values["batch-size"]),
     dryRun: parsed.values["dry-run"] === true,
     reenrich: parsed.values.reenrich === true,
   };
@@ -369,6 +381,7 @@ async function enrich(root: string, args: string[], deps: ResourcesDeps): Promis
     planner: plannerForFinalize(root, deps),
     category: options.category,
     limit: options.limit,
+    batchSize: options.batchSize,
     dryRun: options.dryRun,
     reenrich: options.reenrich,
     now: deps.now,
