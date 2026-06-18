@@ -5,6 +5,13 @@ import { loadConfig } from "../config/projectConfig.js";
 export interface PlannerAsk { pack: string; instruction: string; mode?: string; phaseKey?: string; }
 export interface PlannerBackend { name: string; ask(req: PlannerAsk): Promise<string>; }
 
+export class PlannerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PlannerUnavailableError";
+  }
+}
+
 const stub: PlannerBackend = { name: "stub", async ask(req) { return `STUB PLAN\n${req.instruction}\n---\n${req.pack}`; } };
 
 export function getPlannerBackend(name: string, root = process.cwd()): PlannerBackend {
