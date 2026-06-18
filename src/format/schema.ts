@@ -56,6 +56,20 @@ export const ResourceCardSchema = z.object({
   captureMeta: ResourceCaptureMetaSchema.optional(),
 }).strict();
 
+export const EvalQuerySchema = z.object({
+  query: z.string(),
+  expectedIds: z.array(z.string()),
+}).strict();
+
+export const EvalSetSchema = z.object({
+  queries: z.array(EvalQuerySchema),
+  links: z.array(z.object({
+    fromId: z.string(),
+    rel: ResourceRelationSchema,
+    toId: z.string(),
+  }).strict()).optional(),
+}).strict();
+
 export const PhaseMetaSchema = z.object({
   id: z.number().int().positive(),
   title: z.string(),
@@ -111,3 +125,4 @@ export type ResourceRelation = z.infer<typeof ResourceRelationSchema>;
 export type ResourceOwns = z.infer<typeof ResourceOwnsSchema>;
 export type ResourceEnvironment = z.infer<typeof ResourceEnvironmentSchema>;
 export type ResourceCaptureMeta = z.infer<typeof ResourceCaptureMetaSchema>;
+export type EvalSet = z.infer<typeof EvalSetSchema>;

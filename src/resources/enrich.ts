@@ -106,7 +106,7 @@ function formatIssues(error: { issues: Array<{ path: Array<string | number>; mes
     .join("; ");
 }
 
-function extractJson(value: string): unknown {
+export function extractJson(value: string): unknown {
   const trimmed = value.trim();
   try {
     return JSON.parse(trimmed);

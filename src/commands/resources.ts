@@ -1,7 +1,7 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { isAbsolute, join, normalize, sep } from "node:path";
 import { parseArgs } from "node:util";
-import { getPlannerBackend, type PlannerBackend } from "../backends/planner.js";
+import { getPlannerBackend, PlannerUnavailableError, type PlannerBackend } from "../backends/planner.js";
 import { appendJournal } from "../format/journal.js";
 import { resourcesBundleDir } from "../format/paths.js";
 import {
@@ -15,8 +15,12 @@ import { renderResourceDoctor } from "../resources/doctor.js";
 import { enrichResources, renderEnrichResult } from "../resources/enrich.js";
 import { importResource } from "../resources/import.js";
 import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manifest.js";
+import { auditCards, type AuditReport } from "../resources/audit.js";
+import { evalRetrieval, generateEvalSet, readEvalSetFile, renderRetrievalEvalReport, writeEvalSet } from "../resources/eval.js";
+import { rankFind, type RankedResource } from "../resources/find.js";
+import { judgeLinks, renderJudgeReport } from "../resources/judge.js";
 import { organiseResources, renderOrganiseResult } from "../resources/organise.js";
-import { buildOkfIndex, readOkfIndex, renderOkfBundle, writeOkfIndex, type OkfIndexEntry } from "../resources/okf.js";
+import { buildOkfIndex, readOkfIndex, renderOkfBundle, writeOkfIndex } from "../resources/okf.js";
 import { resolveSchemaSource, type SchemaSourceResolution } from "../resources/schemaSource.js";
 import { captureSession, renderCaptureResult } from "../resources/capture/capture.js";
 import { finalizePendingCapture } from "../resources/capture/finalize.js";
@@ -24,7 +28,7 @@ import { installStopHook } from "../resources/capture/hook.js";
 import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
 }
 
 export interface ResourcesDeps {
@@ -44,6 +48,52 @@ function parseCategory(args: string[]): string | undefined {
 
 function renderSummary(card: ResourceCard): string {
   return `${card.id}\t${card.category}\t${card.type}\t${card.title}`;
+}
+
+function renderAuditMetric(label: string, metric: { count: number; percentage: number }): string {
+  return `${label}: ${metric.count} (${metric.percentage}%)`;
+}
+
+function renderAuditReport(report: AuditReport): string {
+  const categories = Object.entries(report.distribution.categoryHistogram)
+    .slice(0, 10)
+    .map(([category, count]) => `${category}:${count}`)
+    .join(", ") || "none";
+  const tags = report.distribution.topTags
+    .slice(0, 10)
+    .map((entry) => `${entry.tag}:${entry.count}`)
+    .join(", ") || "none";
+  const hubs = report.connectivity.hubs
+    .filter((hub) => hub.degree > 0)
+    .map((hub) => `${hub.id}:${hub.degree}`)
+    .join(", ") || "none";
+  return [
+    `resources audit: healthScore ${report.healthScore}/100`,
+    "coverage:",
+    `  total: ${report.coverage.total}`,
+    `  ${renderAuditMetric("enrichedAt", report.coverage.enrichedAt)}`,
+    `  ${renderAuditMetric("linked", report.coverage.linked)}`,
+    `  ${renderAuditMetric("tagged", report.coverage.tagged)}`,
+    `  ${renderAuditMetric("intent", report.coverage.intent)}`,
+    `  ${renderAuditMetric("owns", report.coverage.owns)}`,
+    `  ${renderAuditMetric("schemaSource", report.coverage.schemaSource)}`,
+    "connectivity:",
+    `  orphans: ${report.connectivity.orphans.length}`,
+    `  components: ${report.connectivity.componentCount}`,
+    `  largest component: ${report.connectivity.largestComponentSize} (${report.connectivity.largestComponentPct}%)`,
+    `  avg degree: ${report.connectivity.avgDegree}`,
+    `  max degree: ${report.connectivity.maxDegree}`,
+    `  density: ${report.connectivity.density}`,
+    `  hubs: ${hubs}`,
+    "integrity:",
+    `  dangling links: ${report.integrity.danglingLinks.count}`,
+    `  self links: ${report.integrity.selfLinks}`,
+    `  duplicate links: ${report.integrity.duplicateLinks}`,
+    "distribution:",
+    `  top categories: ${categories}`,
+    `  top tags: ${tags}`,
+    `flags: ${report.flags.length > 0 ? report.flags.join("; ") : "none"}`,
+  ].join("\n");
 }
 
 interface AddArgs {
@@ -156,6 +206,24 @@ function addResource(root: string, args: string[]): string {
   return `resource added: ${card.id}`;
 }
 
+async function auditResources(root: string, args: string[], deps: ResourcesDeps): Promise<string> {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: false,
+    options: {
+      json: { type: "boolean", default: false },
+      judge: { type: "boolean", default: false },
+      sample: { type: "string" },
+    },
+  });
+  const report = auditCards(getAll(root));
+  const sample = parsePositiveInteger(typeof parsed.values.sample === "string" ? parsed.values.sample : undefined, "--sample") ?? 20;
+  if (parsed.values.judge !== true) return parsed.values.json === true ? JSON.stringify(report, null, 2) : renderAuditReport(report);
+  const judge = await judgeLinks(root, { planner: plannerForFinalize(root, deps), sample });
+  if (parsed.values.json === true) return JSON.stringify({ audit: report, judge }, null, 2);
+  return [renderAuditReport(report), "", renderJudgeReport(judge)].join("\n");
+}
+
 function listResources(root: string, args: string[]): string {
   const category = parseCategory(args);
   const cards = getAll(root).filter((card) => category === undefined || card.category === category);
@@ -169,116 +237,6 @@ function showResource(root: string, args: string[]): string {
   const card = getAll(root).find((candidate) => candidate.id === id);
   if (!card) throw new Error(`resource not found: ${id}`);
   return JSON.stringify(ResourceCardSchema.parse(card), null, 2);
-}
-
-interface RankedResource {
-  entry: OkfIndexEntry;
-  priority: number;
-  score: number;
-  field: string;
-  reason: string;
-}
-
-function tokens(value: string): string[] {
-  return value.toLowerCase().split(/[^a-z0-9_.:/-]+/).filter(Boolean);
-}
-
-function phraseScore(value: string | undefined, query: string): number {
-  if (!value) return 0;
-  const haystack = value.toLowerCase();
-  const needle = query.toLowerCase();
-  if (haystack === needle) return 1000 + needle.length;
-  if (haystack.includes(needle)) return 800 + needle.length;
-  const queryTokens = tokens(query);
-  if (queryTokens.length === 0) return 0;
-  const matched = queryTokens.filter((token) => haystack.includes(token)).length;
-  if (matched === 0) return 0;
-  return matched * 100 + (matched === queryTokens.length ? 50 : 0);
-}
-
-function exactOwnsMatch(entry: OkfIndexEntry, query: string): RankedResource | null {
-  const queryLower = query.toLowerCase();
-  const fields = [
-    { name: "owns.symbols", values: entry.owns?.symbols ?? [] },
-    { name: "owns.endpoints", values: entry.owns?.endpoints ?? [] },
-    { name: "owns.configKeys", values: entry.owns?.configKeys ?? [] },
-  ];
-  for (const [fieldIndex, field] of fields.entries()) {
-    const valueIndex = field.values.findIndex((value) => value === query || value.toLowerCase() === queryLower);
-    if (valueIndex >= 0) {
-      const value = field.values[valueIndex];
-      return {
-        entry,
-        priority: 1,
-        score: 1000 - fieldIndex * 100 - valueIndex,
-        field: field.name,
-        reason: `${field.name}:${value}`,
-      };
-    }
-  }
-  return null;
-}
-
-function titleMatch(entry: OkfIndexEntry, query: string): RankedResource | null {
-  const score = phraseScore(entry.title, query);
-  if (score === 0) return null;
-  return { entry, priority: 3, score, field: "title", reason: `title:${entry.title}` };
-}
-
-function tagsMatch(entry: OkfIndexEntry, query: string): RankedResource | null {
-  const queryLower = query.toLowerCase();
-  const index = entry.tags.findIndex((tag) => tag.toLowerCase() === queryLower || tag.toLowerCase().includes(queryLower));
-  if (index < 0) return null;
-  const tag = entry.tags[index];
-  return {
-    entry,
-    priority: 4,
-    score: tag.toLowerCase() === queryLower ? 1000 - index : 500 - index,
-    field: "tags",
-    reason: `tags:${tag}`,
-  };
-}
-
-function bodyMatch(entry: OkfIndexEntry, card: ResourceCard | undefined, query: string): RankedResource | null {
-  if (!card) return null;
-  const queryLower = query.toLowerCase();
-  const fields = [
-    { name: "excerpt", value: card.excerpt },
-    { name: "body", value: card.body },
-    { name: "description", value: card.description },
-  ];
-  for (const [index, field] of fields.entries()) {
-    if (field.value?.toLowerCase().includes(queryLower)) {
-      return {
-        entry,
-        priority: 5,
-        score: 1000 - index,
-        field: field.name,
-        reason: `${field.name}:substring`,
-      };
-    }
-  }
-  return null;
-}
-
-function bestResourceMatch(entry: OkfIndexEntry, card: ResourceCard | undefined, query: string): RankedResource | null {
-  const owns = exactOwnsMatch(entry, query);
-  if (owns) return owns;
-
-  const intentScore = phraseScore(entry.intent, query);
-  if (intentScore > 0) {
-    return { entry, priority: 2, score: intentScore, field: "intent", reason: `intent:${entry.intent ?? ""}` };
-  }
-
-  return titleMatch(entry, query) ?? tagsMatch(entry, query) ?? bodyMatch(entry, card, query);
-}
-
-function compareRanked(a: RankedResource, b: RankedResource): number {
-  return a.priority - b.priority ||
-    b.score - a.score ||
-    a.entry.category.localeCompare(b.entry.category) ||
-    a.entry.title.localeCompare(b.entry.title) ||
-    a.entry.id.localeCompare(b.entry.id);
 }
 
 function renderFindResult(match: RankedResource): string {
@@ -316,14 +274,8 @@ function parseFindArgs(args: string[]): { query: string; limit: number | null } 
 function findResources(root: string, args: string[]): string {
   const { query, limit } = parseFindArgs(args);
   const cards = getAll(root);
-  const byId = new Map(cards.map((card) => [card.id, card]));
   const entries = readOkfIndex(root) ?? buildOkfIndex(cards);
-  const matches = entries
-    .flatMap((entry) => {
-      const match = bestResourceMatch(entry, byId.get(entry.id), query);
-      return match ? [match] : [];
-    })
-    .sort(compareRanked);
+  const matches = rankFind(cards, query, entries);
   if (matches.length === 0) return "resources: none";
   const capped = limit === null ? matches : matches.slice(0, limit);
   return capped.map(renderFindResult).join("\n");
@@ -428,6 +380,44 @@ async function enrich(root: string, args: string[], deps: ResourcesDeps): Promis
     output,
     `Planner unavailable (ChatGPT Pro limit / model unavailable). Enriched ${result.summary.enriched}; ${pending} pending — nothing lost. Re-run \`gproj resources enrich\` later, or use GPROJ_PLANNER=openai-responses.`,
   ].join("\n");
+}
+
+async function evalResources(root: string, args: string[], deps: ResourcesDeps): Promise<string> {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      json: { type: "boolean", default: false },
+      generate: { type: "boolean", default: false },
+      out: { type: "string" },
+      k: { type: "string" },
+    },
+  });
+  const generate = parsed.values.generate === true;
+  const out = typeof parsed.values.out === "string" ? parsed.values.out : undefined;
+  const k = parsePositiveInteger(typeof parsed.values.k === "string" ? parsed.values.k : undefined, "--k") ?? 10;
+
+  if (generate) {
+    if (parsed.positionals.length !== 0) throw new Error(usage());
+    try {
+      const evalset = await generateEvalSet(root, { planner: plannerForFinalize(root, deps) });
+      if (out) {
+        writeEvalSet(out, evalset);
+        return `evalset written: ${out}`;
+      }
+      return JSON.stringify(evalset, null, 2);
+    } catch (error) {
+      if (error instanceof PlannerUnavailableError) {
+        return `Planner unavailable (ChatGPT Pro limit / model unavailable). No evalset generated; re-run \`gproj resources eval --generate${out ? ` --out ${out}` : ""}\` later, or use GPROJ_PLANNER=openai-responses.`;
+      }
+      throw error;
+    }
+  }
+
+  if (out !== undefined || parsed.positionals.length !== 1) throw new Error(usage());
+  const evalset = readEvalSetFile(parsed.positionals[0]);
+  const report = evalRetrieval(root, evalset, { k });
+  return parsed.values.json === true ? JSON.stringify(report, null, 2) : renderRetrievalEvalReport(report);
 }
 
 function linkResource(root: string, args: string[]): string {
@@ -596,6 +586,10 @@ export async function runResources(root: string, args: string[], deps: Resources
       return organise(root, rest);
     case "enrich":
       return enrich(root, rest, deps);
+    case "audit":
+      return auditResources(root, rest, deps);
+    case "eval":
+      return evalResources(root, rest, deps);
     case "list":
       return listResources(root, rest);
     case "show":
