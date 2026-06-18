@@ -72,6 +72,16 @@ export async function runCli(
       ].join("\n"));
       break;
     }
+    case "retarget": {
+      const goal = rest.join(" ");
+      if (!goal) { io.error('usage: gproj retarget "<new goal>"'); throw new CliExit(2); }
+      const { runRetarget } = await import("./commands/retarget.js");
+      io.log(await withLock(root, "retarget", () => {
+        runRetarget(root, goal);
+        return renderStatus(root);
+      }));
+      break;
+    }
     case "package": {
       const { runPackage } = await import("./commands/package.js");
       io.log(await withLock(root, "package", async () => {
@@ -155,7 +165,7 @@ export async function runCli(
       break;
     }
     default:
-      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance, sync, resources, catalog, install-agent`);
+      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, retarget, package, exec, review, decide, advance, sync, resources, catalog, install-agent`);
       throw new CliExit(2);
   }
 }

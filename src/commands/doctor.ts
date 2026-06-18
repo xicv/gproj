@@ -4,6 +4,7 @@ import { readJournal } from "../format/journal.js";
 import { RunSchema } from "../format/schema.js";
 import { readState } from "../format/store.js";
 import { inspectLock } from "../lock/inspect.js";
+import { currentGoalHash } from "./package.js";
 import { detectInterrupted, retryCommandFor } from "./recover.js";
 import { NEXT } from "./status.js";
 
@@ -37,8 +38,12 @@ export function renderDoctor(root: string): string {
     ? `held by pid ${lock.pid ?? "unknown"}${lock.label ? ` (${lock.label})` : ""}${lock.stale ? ", stale" : ""}`
     : "none";
   const recoverLine = interrupted.interrupted ? `yes, run \`${retryCommandFor(interrupted.op)}\` after \`gproj recover\`` : "no";
+  const currentPhase = state.phases.find((phase) => phase.id === state.currentPhase);
+  const goalDriftLine = currentPhase?.goalHash && currentPhase.goalHash !== currentGoalHash(root)
+    ? `warning: GOAL changed since phase ${state.currentPhase} was packaged — run \`gproj package\` to re-plan.`
+    : null;
 
-  return [
+  const lines = [
     `phase: ${state.currentPhase}`,
     `status: ${state.status}`,
     `next: ${NEXT[state.status] ?? "(unknown)"}`,
@@ -46,5 +51,7 @@ export function renderDoctor(root: string): string {
     `lock: ${lockLine}`,
     `verifier: ${latestRunVerifier(root, state.currentPhase)}`,
     `recover recommended: ${recoverLine}`,
-  ].join("\n");
+  ];
+  if (goalDriftLine) lines.push(goalDriftLine);
+  return lines.join("\n");
 }

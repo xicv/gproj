@@ -41,6 +41,14 @@ export const catalogEntries: CatalogEntry[] = [
     example: "gproj recover",
   },
   {
+    name: "retarget",
+    group: "project",
+    summary: "Pivot to a new goal and start a fresh planning phase.",
+    whenToUse: "Replace the current GOAL.md while preserving history and decisions from the previous goal.",
+    usage: 'gproj retarget "<new goal>"',
+    example: 'gproj retarget "Ship the import flow"',
+  },
+  {
     name: "package",
     group: "workflow",
     summary: "Generate the next execution prompt package.",
@@ -157,7 +165,7 @@ export const catalogEntries: CatalogEntry[] = [
     group: "resources",
     summary: "Ask the planner to add retrieval metadata to resource cards.",
     whenToUse: "Populate missing enrichment fields for imported resources before relying on resource search and links at scale.",
-    usage: "gproj resources enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich]",
+    usage: "gproj resources enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich] [--relink]",
     example: "gproj resources enrich --category docs --limit 30",
   },
   {

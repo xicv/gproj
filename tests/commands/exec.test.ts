@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../src/commands/init.js";
 import { runPackage } from "../../src/commands/package.js";
 import { runExec } from "../../src/commands/exec.js";
-import { runReview } from "../../src/commands/review.js";
-import { runDecide } from "../../src/commands/decide.js";
 import { readState } from "../../src/format/store.js";
 import { readJournal } from "../../src/format/journal.js";
 import { existsSync } from "node:fs";
@@ -110,21 +108,28 @@ describe("exec", () => {
   });
 
   it("allocates run ids from max existing index instead of count", async () => {
-    const first = await runExec(root, { executorName: "stub" });
-    await runReview(root, { plannerName: "stub", maxTokens: 4000 });
-    runDecide(root, "adjust");
-    await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
-    const second = await runExec(root, { executorName: "stub" });
+    writeFileSync(phaseRunPath(root, 1, 1), JSON.stringify({
+      id: "p1-r1",
+      phase: 1,
+      promptHash: "manual",
+      changedFiles: [],
+      diffStat: "",
+      testsPassed: true,
+      failures: [],
+    }));
+    writeFileSync(phaseRunPath(root, 1, 3), JSON.stringify({
+      id: "p1-r3",
+      phase: 1,
+      promptHash: "manual",
+      changedFiles: [],
+      diffStat: "",
+      testsPassed: true,
+      failures: [],
+    }));
+    const next = await runExec(root, { executorName: "stub" });
 
-    unlinkSync(runPathFromId(root, first));
-    await runReview(root, { plannerName: "stub", maxTokens: 4000 });
-    runDecide(root, "adjust");
-    await runPackage(root, { plannerName: "stub", maxTokens: 4000 });
-    const third = await runExec(root, { executorName: "stub" });
-
-    expect(second).toBe("p1-r2");
-    expect(third).toBe("p1-r3");
-    expect(existsSync(runPathFromId(root, third))).toBe(true);
+    expect(next).toBe("p1-r4");
+    expect(existsSync(runPathFromId(root, next))).toBe(true);
   });
 
   it("journals exec start and done with the run id", async () => {

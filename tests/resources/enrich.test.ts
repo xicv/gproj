@@ -183,6 +183,57 @@ describe("resources enrich", () => {
     expect(getAll(root).find((item) => item.id === "c")?.enrichedAt).toBeUndefined();
   });
 
+  it("relink selects only cards with no links regardless of enrichedAt", async () => {
+    writeAll(root, [
+      card("linked", {
+        enrichedAt: "2026-06-18T00:00:00.000Z",
+        links: [{ rel: "references", toId: "orphan-enriched" }],
+      }),
+      card("orphan-enriched", { enrichedAt: "2026-06-18T00:00:00.000Z", links: [] }),
+      card("orphan-missing-links", { enrichedAt: "2026-06-18T00:00:00.000Z" }),
+      card("fresh-linked", { links: [{ rel: "references", toId: "linked" }] }),
+    ]);
+    const calls: string[][] = [];
+
+    const result = await enrichResources(root, {
+      planner: planner((req) => {
+        const ids = idsFromPack(req);
+        calls.push(ids);
+        return Object.fromEntries(ids.map((id) => [id, validEnrichment({ links: [{ rel: "references", toId: "linked" }] })]));
+      }),
+      relink: true,
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(result.summary).toEqual({ selected: 2, enriched: 2, skipped: 2, failed: 0, unchanged: 0 });
+    expect(calls).toEqual([["orphan-enriched", "orphan-missing-links"]]);
+    expect(getAll(root).find((item) => item.id === "fresh-linked")?.enrichedAt).toBeUndefined();
+  });
+
+  it("reenrich takes precedence over relink", async () => {
+    writeAll(root, [
+      card("linked", {
+        enrichedAt: "2026-06-18T00:00:00.000Z",
+        links: [{ rel: "references", toId: "orphan" }],
+      }),
+      card("orphan", { enrichedAt: "2026-06-18T00:00:00.000Z" }),
+    ]);
+    const calls: string[][] = [];
+
+    await enrichResources(root, {
+      planner: planner((req) => {
+        const ids = idsFromPack(req);
+        calls.push(ids);
+        return Object.fromEntries(ids.map((id) => [id, validEnrichment()]));
+      }),
+      reenrich: true,
+      relink: true,
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(calls).toEqual([["linked", "orphan"]]);
+  });
+
   it("includes related candidates in the planner pack for each batch card", async () => {
     writeAll(root, [
       card("r1", {

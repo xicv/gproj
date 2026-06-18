@@ -50,6 +50,7 @@ describe("cli", () => {
     await expect(runCli(root, ["bogus"], { log: () => undefined, error: (line) => errors.push(line) })).rejects.toThrow("cli exit");
     expect(errors.join("\n")).toContain("recover");
     expect(errors.join("\n")).toContain("doctor");
+    expect(errors.join("\n")).toContain("retarget");
     expect(errors.join("\n")).toContain("sync");
     expect(errors.join("\n")).toContain("catalog");
     expect(errors.join("\n")).toContain("install-agent");
@@ -73,7 +74,7 @@ describe("cli", () => {
     runInit(root, "Build X");
     mkdirSync(join(root, ".gproj"), { recursive: true });
     writeFileSync(join(root, ".gproj", "config.json"), JSON.stringify({ maxPackTokens: 20 }));
-    writeMarkdown(root, "phases/01/plan.md", "# Phase\n" + "mandatory ".repeat(500));
+    writeMarkdown(root, "GOAL.md", "# Goal\n\n" + "mandatory ".repeat(500));
 
     await expect(runCli(root, ["package"], { log: () => undefined, error: () => undefined }, {})).rejects.toThrow(
       "maxPackTokens=20",

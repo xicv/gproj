@@ -74,6 +74,7 @@ export const PhaseMetaSchema = z.object({
   id: z.number().int().positive(),
   title: z.string(),
   status: z.enum(["pending", "planned", "executing", "reviewing", "accepted", "rejected"]),
+  goalHash: z.string().optional(),
 });
 
 export const StateSchema = z.object({
