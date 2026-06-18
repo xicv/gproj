@@ -91,8 +91,23 @@ describe("git verifier", () => {
     expect((addArgs as unknown as string[]).some((a) => a.includes(":(exclude)"))).toBe(false);
   });
 
+  it("captureStagedEvidence does not truncate a diff over the old 8000 character budget", () => {
+    const big = "+".repeat(12_000);
+    const run: RunFn = (command) => {
+      const joined = command.join(" ");
+      if (joined.startsWith("git add -A")) return { stdout: "", stderr: "", code: 0 };
+      if (joined.includes("--stat")) return { stdout: "stat", stderr: "", code: 1 };
+      return { stdout: big, stderr: "", code: 1 };
+    };
+
+    const result = captureStagedEvidence("/wt", run);
+    expect(result?.diff).toBe(big);
+    expect(result?.diff.length).toBeGreaterThan(8000);
+    expect(result?.diff).not.toContain("[diff truncated");
+  });
+
   it("captureStagedEvidence bounds an oversized diff", () => {
-    const big = "+".repeat(20_000);
+    const big = "+".repeat(25_000);
     const run: RunFn = (command) => {
       const joined = command.join(" ");
       if (joined.startsWith("git add -A")) return { stdout: "", stderr: "", code: 0 };
@@ -102,7 +117,7 @@ describe("git verifier", () => {
 
     const result = captureStagedEvidence("/wt", run);
     expect(result?.diff.length).toBeLessThan(big.length);
-    expect(result?.diff).toContain("[diff truncated");
+    expect(result?.diff).toContain("[diff truncated at 24000 chars]");
   });
 
   it("captureStagedEvidence returns null when staging fails", () => {
