@@ -22,11 +22,17 @@ interface ClaudeSettings {
 
 export interface HookInstallOptions {
   home?: string;
+  root?: string;
+  scope?: "global" | "project";
   uninstall?: boolean;
 }
 
 function settingsPath(home: string): string {
   return join(home, ".claude", "settings.json");
+}
+
+function projectSettingsPath(root: string): string {
+  return join(root, ".claude", "settings.json");
 }
 
 function readSettings(path: string): ClaudeSettings {
@@ -55,8 +61,9 @@ function withoutHook(entries: ClaudeHookMatcher[]): ClaudeHookMatcher[] {
 }
 
 export function installStopHook(options: HookInstallOptions = {}): string {
+  const scope = options.scope ?? "global";
   const home = options.home ?? homedir();
-  const path = settingsPath(home);
+  const path = scope === "project" ? projectSettingsPath(options.root ?? process.cwd()) : settingsPath(home);
   mkdirSync(dirname(path), { recursive: true });
   const settings = readSettings(path);
   const hooks = settings.hooks ?? {};
@@ -71,7 +78,7 @@ export function installStopHook(options: HookInstallOptions = {}): string {
       },
     };
     atomicWrite(path, `${JSON.stringify(next, null, 2)}\n`);
-    return `capture stop hook uninstalled\ncommand: ${hookCommand}\n${JSON.stringify(hookSnippet(), null, 2)}`;
+    return `capture stop hook uninstalled (${scope})\npath: ${path}\ncommand: ${hookCommand}\n${JSON.stringify(hookSnippet(), null, 2)}`;
   }
 
   const nextStop = stop.some(containsHook) ? stop : [...stop, hookSnippet()];
@@ -83,7 +90,7 @@ export function installStopHook(options: HookInstallOptions = {}): string {
     },
   };
   atomicWrite(path, `${JSON.stringify(next, null, 2)}\n`);
-  return `capture stop hook installed\ncommand: ${hookCommand}\n${JSON.stringify(hookSnippet(), null, 2)}`;
+  return `capture stop hook installed (${scope})\npath: ${path}\ncommand: ${hookCommand}\n${JSON.stringify(hookSnippet(), null, 2)}`;
 }
 
 export { hookCommand };

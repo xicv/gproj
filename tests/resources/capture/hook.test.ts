@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hookCommand, installStopHook } from "../../../src/resources/capture/hook.js";
@@ -22,5 +22,17 @@ describe("capture hook installer", () => {
 
     expect(uninstalled).toContain(hookCommand);
     expect(after.hooks.Stop).toEqual([]);
+  });
+
+  it("installs project hook without modifying global settings", () => {
+    const home = mkdtempSync(join(tmpdir(), "gproj-home-"));
+    const root = mkdtempSync(join(tmpdir(), "gproj-"));
+
+    const output = installStopHook({ home, root, scope: "project" });
+
+    expect(output).toContain("(project)");
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false);
+    const settings = JSON.parse(readFileSync(join(root, ".claude", "settings.json"), "utf8"));
+    expect(settings.hooks.Stop[0].hooks[0].command).toBe(hookCommand);
   });
 });

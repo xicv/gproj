@@ -144,8 +144,18 @@ export async function runCli(
       }
       break;
     }
+    case "catalog": {
+      const { runCatalog } = await import("./commands/catalog.js");
+      io.log(runCatalog(rest));
+      break;
+    }
+    case "install-agent": {
+      const { runInstallAgent } = await import("./commands/installAgent.js");
+      io.log(runInstallAgent(root, rest, { env }));
+      break;
+    }
     default:
-      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance, sync, resources`);
+      io.error(`gproj: unknown command "${cmd ?? ""}". commands: init, status, doctor, recover, package, exec, review, decide, advance, sync, resources, catalog, install-agent`);
       throw new CliExit(2);
   }
 }

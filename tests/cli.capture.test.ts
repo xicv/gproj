@@ -86,4 +86,18 @@ describe("capture CLI dispatch", () => {
     const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
     expect(settings.hooks.Stop[0].hooks[0].command).toBe(hookCommand);
   });
+
+  it("installs the project hook through the CLI without touching HOME", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gproj-"));
+    const home = mkdtempSync(join(tmpdir(), "gproj-home-"));
+
+    const output = await cli(root, ["resources", "capture", "install-hook", "--project"], { HOME: home });
+
+    expect(output).toContain("(project)");
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false);
+    const settingsPath = join(root, ".claude", "settings.json");
+    expect(existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    expect(settings.hooks.Stop[0].hooks[0].command).toBe(hookCommand);
+  });
 });
