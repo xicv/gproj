@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -14,9 +14,15 @@ import {
   type CloudSyncSpawn,
 } from "../backends/cloudSync.js";
 import { loadConfig, type GprojConfig } from "../config/projectConfig.js";
+import { resourcesManifestPath, resourcesSharedManifestPath } from "../format/paths.js";
+import { atomicWrite } from "../format/store.js";
+import { getAll } from "../resources/manifest.js";
 
 const DEFAULT_INCLUDE = [".gproj/**"];
 const DEFAULT_EXCLUDE = ".gproj/backend.json";
+const RESOURCE_MANIFEST_REL = ".gproj/resources.ndjson";
+const RESOURCE_SHARED_MANIFEST_REL = ".gproj/resources.shared.ndjson";
+const CAPTURE_LOG_REL = ".gproj/.g.capture.log";
 
 export interface CloudSyncState {
   configured: boolean;
@@ -130,7 +136,27 @@ function walkFiles(dir: string): string[] {
   return files;
 }
 
+function writeSharedResourceProjection(root: string): void {
+  if (!existsSync(resourcesManifestPath(root))) return;
+  const path = resourcesSharedManifestPath(root);
+  const shared = getAll(root).filter((card) => card.visibility === "shared");
+  if (shared.length === 0) {
+    rmSync(path, { force: true });
+    return;
+  }
+  atomicWrite(path, shared.map((card) => JSON.stringify(card)).join("\n") + "\n");
+}
+
+function isExcludedFromPush(rel: string): boolean {
+  if (rel === DEFAULT_EXCLUDE) return true;
+  if (rel === RESOURCE_MANIFEST_REL) return true;
+  if (rel === CAPTURE_LOG_REL) return true;
+  if (rel.startsWith(".gproj/resources/")) return true;
+  return false;
+}
+
 export function resolveIncludedFiles(root: string, include: string[]): string[] {
+  writeSharedResourceProjection(root);
   const files = new Set<string>();
   for (const pattern of include) {
     const absolutePattern = resolve(root, pattern);
@@ -149,7 +175,10 @@ export function resolveIncludedFiles(root: string, include: string[]): string[] 
     }
   }
 
-  files.delete(DEFAULT_EXCLUDE);
+  for (const rel of [...files]) {
+    if (isExcludedFromPush(rel)) files.delete(rel);
+  }
+  if (!existsSync(resourcesSharedManifestPath(root))) files.delete(RESOURCE_SHARED_MANIFEST_REL);
   return [...files].sort();
 }
 

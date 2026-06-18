@@ -12,6 +12,21 @@ export const ResourceOwnsSchema = z.object({
   configKeys: z.array(z.string()),
 }).strict();
 
+export const ResourceEnvironmentSchema = z.object({
+  db: z.array(z.string()).optional(),
+  services: z.array(z.string()).optional(),
+  mcp: z.array(z.string()).optional(),
+  files: z.array(z.string()).optional(),
+  urls: z.array(z.string()).optional(),
+}).strict();
+
+export const ResourceCaptureMetaSchema = z.object({
+  sessionId: z.string(),
+  fingerprint: z.string(),
+  toolSequence: z.array(z.string()),
+  capturedAt: z.string(),
+}).strict();
+
 export const ResourceCardSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -30,6 +45,14 @@ export const ResourceCardSchema = z.object({
   intent: z.string().optional(),
   owns: ResourceOwnsSchema.optional(),
   schemaSource: z.array(z.string()).optional(),
+  kind: z.enum(["debug", "research", "feature", "reference"]).optional(),
+  facts: z.array(z.string()).optional(),
+  environment: ResourceEnvironmentSchema.optional(),
+  repro: z.array(z.string()).optional(),
+  resolution: z.string().optional(),
+  triggers: z.array(z.string()).optional(),
+  visibility: z.enum(["local", "shared"]).optional(),
+  captureMeta: ResourceCaptureMetaSchema.optional(),
 }).strict();
 
 export const PhaseMetaSchema = z.object({
@@ -85,3 +108,5 @@ export type ResourceCard = z.infer<typeof ResourceCardSchema>;
 export type ResourceLink = z.infer<typeof ResourceLinkSchema>;
 export type ResourceRelation = z.infer<typeof ResourceRelationSchema>;
 export type ResourceOwns = z.infer<typeof ResourceOwnsSchema>;
+export type ResourceEnvironment = z.infer<typeof ResourceEnvironmentSchema>;
+export type ResourceCaptureMeta = z.infer<typeof ResourceCaptureMetaSchema>;

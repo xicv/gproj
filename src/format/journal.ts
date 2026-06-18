@@ -15,6 +15,9 @@ export type JournalEvent =
   "resources-organised" |
   "resource-linked" |
   "resource-removed" |
+  "capture-pending" |
+  "capture-finalized" |
+  "capture-discarded" |
   "abort";
 
 export interface JournalEntry {

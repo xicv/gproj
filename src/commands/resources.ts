@@ -1,6 +1,7 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { isAbsolute, join, normalize, sep } from "node:path";
 import { parseArgs } from "node:util";
+import { getPlannerBackend, type PlannerBackend } from "../backends/planner.js";
 import { appendJournal } from "../format/journal.js";
 import { resourcesBundleDir } from "../format/paths.js";
 import {
@@ -16,9 +17,21 @@ import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manif
 import { organiseResources, renderOrganiseResult } from "../resources/organise.js";
 import { buildOkfIndex, readOkfIndex, renderOkfBundle, writeOkfIndex, type OkfIndexEntry } from "../resources/okf.js";
 import { resolveSchemaSources, type SchemaSourceResolution } from "../resources/schemaSource.js";
+import { captureSession, renderCaptureResult } from "../resources/capture/capture.js";
+import { finalizePendingCapture } from "../resources/capture/finalize.js";
+import { installStopHook } from "../resources/capture/hook.js";
+import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | list [--category <category>] | show <id> | find <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--uninstall]";
+}
+
+export interface ResourcesDeps {
+  planner?: PlannerBackend;
+  plannerName?: string;
+  env?: NodeJS.ProcessEnv;
+  home?: string;
+  now?: Date;
 }
 
 function parseCategory(args: string[]): string | undefined {
@@ -392,7 +405,114 @@ function removeResource(root: string, args: string[]): string {
   ].join("\n");
 }
 
-export function runResources(root: string, args: string[]): string {
+function homeFromDeps(deps: ResourcesDeps): string | undefined {
+  return deps.home ?? deps.env?.HOME;
+}
+
+function sessionFromValue(value: string | boolean | string[] | undefined): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function captureNow(deps: ResourcesDeps): Date | undefined {
+  return deps.now;
+}
+
+function runCaptureCreate(root: string, args: string[], deps: ResourcesDeps): string {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: false,
+    options: {
+      auto: { type: "boolean", default: false },
+      session: { type: "string" },
+    },
+  });
+  const auto = parsed.values.auto === true;
+  const sessionId = sessionFromValue(parsed.values.session) ?? sessionFromValue(deps.env?.CLAUDE_SESSION_ID);
+  const result = captureSession(root, {
+    auto,
+    sessionId,
+    home: homeFromDeps(deps),
+    now: captureNow(deps),
+    cwd: root,
+  });
+  return auto ? "" : renderCaptureResult(result);
+}
+
+function renderCaptureList(root: string): string {
+  const pending = listPendingCaptures(root);
+  if (pending.length === 0) return "captures: none";
+  return pending
+    .map((capture) => `${capture.id}\t${capture.classification}\t${capture.capturedAt}\t${capture.digest.toolSequence.length} tools`)
+    .join("\n");
+}
+
+function plannerForFinalize(root: string, deps: ResourcesDeps): PlannerBackend {
+  if (deps.planner) return deps.planner;
+  return getPlannerBackend(deps.plannerName ?? deps.env?.GPROJ_PLANNER ?? "oracle-browser", root);
+}
+
+async function runCaptureFinalize(root: string, args: string[], deps: ResourcesDeps): Promise<string> {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      share: { type: "boolean", default: false },
+      add: { type: "boolean", default: false },
+      refine: { type: "string" },
+    },
+  });
+  if (parsed.positionals.length !== 1) throw new Error(usage());
+  const addDecision = parsed.values.add === true;
+  const refineId = typeof parsed.values.refine === "string" ? parsed.values.refine : undefined;
+  if (addDecision && refineId) throw new Error("capture finalize accepts only one of --add or --refine");
+  const result = await finalizePendingCapture(root, parsed.positionals[0], {
+    planner: plannerForFinalize(root, deps),
+    share: parsed.values.share === true,
+    decision: refineId ? "refine" : addDecision ? "add" : undefined,
+    refineId,
+    now: deps.now,
+  });
+  appendJournal(root, { phase: 0, event: "capture-finalized", status: result.action, detail: result.card.id });
+  return `capture finalized: ${result.card.id} (${result.action})`;
+}
+
+function runCaptureDiscard(root: string, args: string[]): string {
+  if (args.length !== 1) throw new Error(usage());
+  const pending = discardPendingCapture(root, args[0]);
+  appendJournal(root, { phase: 0, event: "capture-discarded", status: "discarded", detail: pending.id });
+  return `capture discarded: ${pending.id}`;
+}
+
+function runCaptureInstallHook(args: string[], deps: ResourcesDeps): string {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: false,
+    options: { uninstall: { type: "boolean", default: false } },
+  });
+  return installStopHook({ home: homeFromDeps(deps), uninstall: parsed.values.uninstall === true });
+}
+
+async function runCapture(root: string, args: string[], deps: ResourcesDeps): Promise<string> {
+  const [verb, ...rest] = args;
+  switch (verb) {
+    case undefined:
+      return runCaptureCreate(root, [], deps);
+    case "list":
+      if (rest.length !== 0) throw new Error(usage());
+      return renderCaptureList(root);
+    case "finalize":
+      return runCaptureFinalize(root, rest, deps);
+    case "discard":
+      return runCaptureDiscard(root, rest);
+    case "install-hook":
+      return runCaptureInstallHook(rest, deps);
+    default:
+      if (verb.startsWith("--")) return runCaptureCreate(root, args, deps);
+      throw new Error(usage());
+  }
+}
+
+export async function runResources(root: string, args: string[], deps: ResourcesDeps = {}): Promise<string> {
   const [verb, ...rest] = args;
   switch (verb) {
     case "add":
@@ -416,6 +536,8 @@ export function runResources(root: string, args: string[]): string {
     case "doctor":
       if (rest.length !== 0) throw new Error(usage());
       return renderResourceDoctor(root);
+    case "capture":
+      return runCapture(root, rest, deps);
     default:
       throw new Error(usage());
   }
@@ -424,6 +546,12 @@ export function runResources(root: string, args: string[]): string {
 export function isResourcesMutation(args: string[]): boolean {
   const [verb, ...rest] = args;
   if (verb === "add" || verb === "link" || verb === "rm" || verb === "index") return true;
+  if (verb === "capture") {
+    if (rest.includes("--auto")) return false;
+    const subcommand = rest.find((arg) => !arg.startsWith("--"));
+    if (subcommand === "list" || subcommand === "install-hook") return false;
+    return true;
+  }
   if (verb !== "organise") return false;
   try {
     return !parseOrganiseArgs(rest).dryRun;
