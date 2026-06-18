@@ -103,6 +103,12 @@ describe("buildContextPack", () => {
       excerpt: `excerpt ${index}`,
       sourcePaths: [`docs/r${index}.md`],
       links: index === 0 ? [{ rel: "references", toId: "r1" }] : undefined,
+      intent: index === 0 ? "auth error handling" : undefined,
+      owns: index === 0 ? {
+        symbols: ["AuthService.login"],
+        endpoints: ["POST /login"],
+        configKeys: ["auth.retry"],
+      } : undefined,
     }));
     writeResources(root, resources);
 
@@ -110,9 +116,10 @@ describe("buildContextPack", () => {
 
     expect(pack.text.indexOf("## ARCHITECTURE")).toBeLessThan(pack.text.indexOf("## RESOURCES"));
     expect(pack.text.indexOf("## RESOURCES")).toBeLessThan(pack.text.indexOf("## DECISIONS"));
-    expect(pack.text).toContain("Resource 0 (text) -> .gproj/resources/docs/r0.md #tag [references:r1] - excerpt 0");
+    expect(pack.text).toContain("Resource 0 (text) -> .gproj/resources/docs/r0.md #tag [references:r1] intent=\"auth error handling\" owns[symbols:AuthService.login; endpoints:POST /login; configKeys:auth.retry]");
     expect(pack.text).not.toContain("Resource 5 (text)");
     expect(pack.text).not.toContain("FULL BODY");
+    expect(pack.text).not.toContain("excerpt 0");
   });
 
   it("renders a TRUSTED verifier-checks block and a separate bounded DIFF section", () => {

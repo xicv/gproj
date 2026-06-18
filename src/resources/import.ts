@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { resourceAssetDir } from "../format/paths.js";
-import { type ResourceCard, type ResourceLink } from "../format/schema.js";
+import { type ResourceCard, type ResourceLink, type ResourceOwns } from "../format/schema.js";
 
 export const textExtensions = new Set([".md", ".markdown", ".mdx", ".txt", ".text"]);
 const excerptLimit = 240;
@@ -112,6 +112,9 @@ export interface CreateResourceCardOptions {
   type?: string;
   tags?: string[];
   links?: ResourceLink[];
+  intent?: string;
+  owns?: ResourceOwns;
+  schemaSource?: string[];
 }
 
 export function createResourceCard(
@@ -126,6 +129,9 @@ export function createResourceCard(
   const isText = textExtensions.has(ext);
   const tags = options.tags ?? [];
   const links = options.links && options.links.length > 0 ? options.links : undefined;
+  const intent = options.intent ? { intent: options.intent } : {};
+  const owns = options.owns ? { owns: options.owns } : {};
+  const schemaSource = options.schemaSource && options.schemaSource.length > 0 ? { schemaSource: options.schemaSource } : {};
 
   if (isText) {
     const body = normalizeText(buffer);
@@ -143,6 +149,9 @@ export function createResourceCard(
       contentHash,
       contentSize: Buffer.byteLength(body, "utf8"),
       ...(links ? { links } : {}),
+      ...intent,
+      ...owns,
+      ...schemaSource,
     };
   }
 
@@ -163,6 +172,9 @@ export function createResourceCard(
     contentHash,
     contentSize: buffer.length,
     ...(links ? { links } : {}),
+    ...intent,
+    ...owns,
+    ...schemaSource,
   };
 }
 

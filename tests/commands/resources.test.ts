@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../../src/cli.js";
-import { resourcesBundleDir, resourcesManifestPath } from "../../src/format/paths.js";
+import { resourcesBundleDir, resourcesIndexPath, resourcesManifestPath } from "../../src/format/paths.js";
 import { type ResourceCard } from "../../src/format/schema.js";
 import { getAll, writeAll } from "../../src/resources/manifest.js";
 import { renderOkfBundle } from "../../src/resources/okf.js";
@@ -55,6 +55,16 @@ describe("resources command", () => {
       "references:target-1",
       "--link",
       "depends-on:target-2",
+      "--intent",
+      "auth error handling",
+      "--owns-symbol",
+      "AuthService.login",
+      "--owns-endpoint",
+      "POST /login",
+      "--owns-config",
+      "auth.retry",
+      "--schema-source",
+      "src/auth.ts:AuthService",
       "note.md",
     ]);
 
@@ -68,11 +78,21 @@ describe("resources command", () => {
         { rel: "references", toId: "target-1" },
         { rel: "depends-on", toId: "target-2" },
       ],
+      intent: "auth error handling",
+      owns: {
+        symbols: ["AuthService.login"],
+        endpoints: ["POST /login"],
+        configKeys: ["auth.retry"],
+      },
+      schemaSource: ["src/auth.ts:AuthService"],
     });
     expect(card.id).toMatch(/^cloud-api-spec-/);
     const markdown = readFileSync(join(resourcesBundleDir(root), "dji-cloud-api", `${card.id}.md`), "utf8");
     expect(markdown).toContain("type: \"spec\"");
     expect(markdown).toContain("category: \"dji-cloud-api\"");
+    expect(markdown).toContain("intent: \"auth error handling\"");
+    expect(markdown).toContain("    - \"AuthService.login\"");
+    expect(existsSync(resourcesIndexPath(root))).toBe(true);
   });
 
   it("rejects malformed add link flags", async () => {
@@ -91,8 +111,123 @@ describe("resources command", () => {
     expect(await runResources(["list", "--category=missing"])).toBe("resources: none");
   });
 
+  it("ranks find results by owns, intent, title, tags, then body with stable reasons", async () => {
+    const cards: ResourceCard[] = [
+      {
+        id: "body",
+        type: "text",
+        title: "Body Only",
+        category: "docs",
+        tags: [],
+        timestamp: "2026-06-17T00:00:00.000Z",
+        body: "mentions AuthService.login only in the body",
+      },
+      {
+        id: "tag",
+        type: "text",
+        title: "Tagged",
+        category: "docs",
+        tags: ["AuthService.login"],
+        timestamp: "2026-06-17T00:00:00.000Z",
+      },
+      {
+        id: "title",
+        type: "text",
+        title: "AuthService.login Guide",
+        category: "docs",
+        tags: [],
+        timestamp: "2026-06-17T00:00:00.000Z",
+      },
+      {
+        id: "intent",
+        type: "text",
+        title: "Intent",
+        category: "docs",
+        tags: [],
+        timestamp: "2026-06-17T00:00:00.000Z",
+        intent: "AuthService.login request flow",
+      },
+      {
+        id: "owns",
+        type: "text",
+        title: "Owns",
+        category: "docs",
+        tags: [],
+        timestamp: "2026-06-17T00:00:00.000Z",
+        owns: { symbols: ["AuthService.login"], endpoints: [], configKeys: [] },
+      },
+    ];
+    writeAll(root, cards);
+    renderOkfBundle(root, cards);
+
+    const first = await runResources(["find", "AuthService.login"]);
+    const second = await runResources(["find", "AuthService.login"]);
+    const lines = first.split("\n");
+
+    expect(second).toBe(first);
+    expect(lines.map((line) => line.split("\t")[0])).toEqual(["owns", "intent", "title", "tag", "body"]);
+    expect(lines[0]).toContain("match=owns.symbols:AuthService.login");
+    expect(lines[0]).toContain("field=owns.symbols");
+  });
+
   it("returns a controlled error for an unknown id", async () => {
     await expect(runResources(["show", "missing"])).rejects.toThrow("resource not found: missing");
+  });
+
+  it("resolves schemaSource pointers with the schema command", async () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "auth.ts"), [
+      "export class AuthService {}",
+      "export function login() {}",
+      "export const duplicate = 1;",
+      "const duplicate = 2;",
+    ].join("\n"));
+    writeAll(root, [{
+      id: "auth",
+      type: "text",
+      title: "Auth",
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      schemaSource: [
+        "src/auth.ts:AuthService",
+        "src/auth.ts:missing",
+        "src/missing.ts:AuthService",
+        "src/auth.ts:duplicate",
+      ],
+    }]);
+
+    const output = await runResources(["schema", "auth"]);
+
+    expect(output).toContain("src/auth.ts:1\tAuthService");
+    expect(output).toContain("warning: src/auth.ts:missing: missing symbol");
+    expect(output).toContain("warning: src/missing.ts:AuthService: missing file");
+    expect(output).toContain("warning: src/auth.ts:duplicate: ambiguous match (2)");
+  });
+
+  it("generates the index cache on demand", async () => {
+    writeAll(root, [{
+      id: "r1",
+      type: "text",
+      title: "Resource",
+      category: "docs",
+      tags: ["alpha"],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      intent: "lookup hint",
+      owns: { symbols: ["SymbolOne"], endpoints: [], configKeys: [] },
+      schemaSource: ["src/one.ts:SymbolOne"],
+    }]);
+
+    expect(await runResources(["index"])).toBe(".gproj/resources/.okf-index.json");
+    const index = JSON.parse(readFileSync(resourcesIndexPath(root), "utf8"));
+    expect(index).toEqual([expect.objectContaining({
+      id: "r1",
+      intent: "lookup hint",
+      owns: { symbols: ["SymbolOne"], endpoints: [], configKeys: [] },
+      schemaSource: ["src/one.ts:SymbolOne"],
+      resource: "docs/r1.md",
+      links: [],
+    })]);
   });
 
   it("organises files, links resources, and runs resource doctor", async () => {
@@ -104,6 +239,7 @@ describe("resources command", () => {
 
     expect(organiseOutput).toContain("imports: 2");
     expect(cards).toHaveLength(2);
+    expect(existsSync(resourcesIndexPath(root))).toBe(true);
 
     const from = cards.find((card) => card.title === "a");
     const to = cards.find((card) => card.title === "b");
@@ -113,6 +249,7 @@ describe("resources command", () => {
     const linkOutput = await runResources(["link", from?.id ?? "", "references", to?.id ?? ""]);
     expect(linkOutput).toContain("resource linked:");
     expect(readFileSync(join(resourcesBundleDir(root), "root", `${from?.id}.md`), "utf8")).toContain(`- [b](../root/${to?.id}.md)`);
+    expect(JSON.parse(readFileSync(resourcesIndexPath(root), "utf8")).find((entry: { id: string }) => entry.id === from?.id)?.links).toEqual([{ toId: to?.id }]);
     expect(await runResources(["doctor"])).toBe("resources doctor: ok");
   });
 
@@ -135,6 +272,7 @@ describe("resources command", () => {
     expect(cards.some((card) => card.id === asset?.id)).toBe(false);
     expect(cards.find((card) => card.id === ref?.id)?.links).toBeUndefined();
     expect(existsSync(join(resourcesBundleDir(root), asset?.resource ?? ""))).toBe(false);
+    expect(JSON.parse(readFileSync(resourcesIndexPath(root), "utf8")).some((entry: { id: string }) => entry.id === asset?.id)).toBe(false);
   });
 
   it("preserves shared assets when removing one referencing card", async () => {

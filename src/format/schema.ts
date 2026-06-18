@@ -6,6 +6,12 @@ export const ResourceLinkSchema = z.object({
   toId: z.string(),
 }).strict();
 
+export const ResourceOwnsSchema = z.object({
+  symbols: z.array(z.string()),
+  endpoints: z.array(z.string()),
+  configKeys: z.array(z.string()),
+}).strict();
+
 export const ResourceCardSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -21,6 +27,9 @@ export const ResourceCardSchema = z.object({
   contentHash: z.string().optional(),
   contentSize: z.number().int().nonnegative().optional(),
   links: z.array(ResourceLinkSchema).optional(),
+  intent: z.string().optional(),
+  owns: ResourceOwnsSchema.optional(),
+  schemaSource: z.array(z.string()).optional(),
 }).strict();
 
 export const PhaseMetaSchema = z.object({
@@ -75,3 +84,4 @@ export type PhaseMeta = z.infer<typeof PhaseMetaSchema>;
 export type ResourceCard = z.infer<typeof ResourceCardSchema>;
 export type ResourceLink = z.infer<typeof ResourceLinkSchema>;
 export type ResourceRelation = z.infer<typeof ResourceRelationSchema>;
+export type ResourceOwns = z.infer<typeof ResourceOwnsSchema>;

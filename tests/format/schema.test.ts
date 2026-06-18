@@ -30,8 +30,18 @@ describe("schemas", () => {
       timestamp: "2026-06-17T00:00:00.000Z",
       body: "body",
       contentHash: "abc",
+      intent: "auth error handling",
+      owns: {
+        symbols: ["AuthService.login"],
+        endpoints: ["POST /login"],
+        configKeys: ["auth.retry"],
+      },
+      schemaSource: ["src/auth.ts:AuthService"],
     });
     expect(card.id).toBe("r1");
+    expect(card.intent).toBe("auth error handling");
+    expect(card.owns?.symbols).toEqual(["AuthService.login"]);
+    expect(card.schemaSource).toEqual(["src/auth.ts:AuthService"]);
   });
   it("rejects a resource card missing required fields", () => {
     expect(() => ResourceCardSchema.parse({
@@ -40,6 +50,26 @@ describe("schemas", () => {
       title: "Resource",
       tags: [],
       timestamp: "2026-06-17T00:00:00.000Z",
+    })).toThrow();
+  });
+  it("rejects invalid resource retrieval metadata shapes", () => {
+    expect(() => ResourceCardSchema.parse({
+      id: "r1",
+      type: "text",
+      title: "Resource",
+      category: "documents",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      owns: { symbols: ["A"], endpoints: [] },
+    })).toThrow();
+    expect(() => ResourceCardSchema.parse({
+      id: "r1",
+      type: "text",
+      title: "Resource",
+      category: "documents",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      schemaSource: "src/auth.ts:AuthService",
     })).toThrow();
   });
 });
