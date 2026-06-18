@@ -77,7 +77,8 @@ gproj resources organise docs/            # bulk-import a tree; category = subdi
 gproj resources add api.md --category billing --tags api,stripe \
   --intent "billing webhooks" --owns-symbol StripeWebhook \
   --owns-endpoint "POST /webhooks/stripe" --schema-source src/billing.ts:StripeWebhook
-gproj resources find StripeWebhook        # ranked: by symbol > endpoint > intent > tags > body
+gproj resources enrich --category billing # planner adds tags, ownership, and links
+gproj resources find --limit 10 StripeWebhook  # ranked: symbol > endpoint > intent > tags > body
 gproj resources schema <id>               # jump from the doc to the code definition (path:line)
 gproj resources list | show <id> | link <a> defines <b> | rm <id> | doctor
 gproj resources index                     # refresh the .okf-index.json cache
@@ -85,6 +86,14 @@ gproj resources index                     # refresh the .okf-index.json cache
 
 `find` ranks by what a card *owns* (symbols, endpoints, config keys), so
 `gproj resources find "POST /webhooks/stripe"` returns the one doc that owns it.
+Use `gproj resources find --all <query>` when you need the complete ranked set.
+
+`enrich` is idempotent by default: it skips cards with `enrichedAt` unless
+`--reenrich` is set, processes roughly 15 cards per planner call, and commits
+each successful batch independently. Large repositories should scope by
+`--category` or `--limit` first; runtime and cost scale with the number of
+planner batches, and `--dry-run` shows the proposed batch changes without
+writing `.gproj/`.
 
 ## 3. SOP capture — procedural memory from your sessions
 
@@ -149,6 +158,7 @@ memorizing it.
 | Retry a phase with feedback / throw it away | `gproj decide adjust` / `gproj decide reject` |
 | Recover after a crash | `gproj recover` · `gproj doctor` |
 | Organize scattered docs into the knowledge base | `gproj resources organise docs/` |
+| Enrich imported docs for ownership and links | `gproj resources enrich --category docs` |
 | Find the doc that owns a symbol / endpoint | `gproj resources find PaymentIntent` |
 | Jump from a doc to the code it documents | `gproj resources schema <id>` |
 | Turn on automatic SOP capture | `gproj resources capture install-hook` |
@@ -209,9 +219,10 @@ gproj advance                       package → exec → review in one step
 gproj status | doctor | recover     state / diagnose / clean up after a crash
 
 # resources (knowledge base)
-gproj resources organise [dir] [--delete]   bulk-import a tree (dedup; --delete prunes duplicate originals)
+gproj resources organise [dir] [--dry-run] [--delete] [--category <category>]
 gproj resources add <path> [--category --tags --title --type --intent --owns-* --schema-source --link]
-gproj resources find <query> | schema <id> | list | show <id> | link <a> <rel> <b> | rm <id> | index | doctor
+gproj resources enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich]
+gproj resources find [--limit <n>|--all] <query> | schema <id> | list | show <id> | link <a> <rel> <b> | rm <id> | index | doctor
 
 # SOP capture (procedural memory)
 gproj resources capture [--auto --session <id>] | list | finalize <id> [--share] | discard <id>

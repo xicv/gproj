@@ -22,6 +22,22 @@ describe("resource import", () => {
     expect(card.contentHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("imports supported text extensions as body and excerpt", () => {
+    const extensions = [".md", ".mmd", ".txt", ".sh", ".csv", ".json", ".yaml", ".yml", ".ts", ".js", ".tsx", ".jsx", ".py", ".go", ".rs", ".toml", ".ini", ".xml", ".html", ".css"];
+
+    for (const ext of extensions) {
+      const name = `file${ext}`;
+      writeFileSync(join(root, name), `body for ${ext}\n`);
+
+      const card = importResource(root, name, new Date("2026-06-17T00:00:00.000Z"));
+
+      expect(card.type, ext).toBe("text");
+      expect(card.body, ext).toBe(`body for ${ext}\n`);
+      expect(card.excerpt, ext).toBe(`body for ${ext}`);
+      expect(card.resource, ext).toBeUndefined();
+    }
+  });
+
   it("copies binary assets into content-addressed storage", () => {
     writeFileSync(join(root, "image.bin"), Buffer.from([0, 1, 2, 3]));
 

@@ -45,6 +45,7 @@ export const ResourceCardSchema = z.object({
   intent: z.string().optional(),
   owns: ResourceOwnsSchema.optional(),
   schemaSource: z.array(z.string()).optional(),
+  enrichedAt: z.string().datetime().optional(),
   kind: z.enum(["debug", "research", "feature", "reference"]).optional(),
   facts: z.array(z.string()).optional(),
   environment: ResourceEnvironmentSchema.optional(),

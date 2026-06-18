@@ -37,11 +37,13 @@ describe("schemas", () => {
         configKeys: ["auth.retry"],
       },
       schemaSource: ["src/auth.ts:AuthService"],
+      enrichedAt: "2026-06-18T01:00:00.000Z",
     });
     expect(card.id).toBe("r1");
     expect(card.intent).toBe("auth error handling");
     expect(card.owns?.symbols).toEqual(["AuthService.login"]);
     expect(card.schemaSource).toEqual(["src/auth.ts:AuthService"]);
+    expect(card.enrichedAt).toBe("2026-06-18T01:00:00.000Z");
   });
   it("rejects a resource card missing required fields", () => {
     expect(() => ResourceCardSchema.parse({
@@ -70,6 +72,15 @@ describe("schemas", () => {
       tags: [],
       timestamp: "2026-06-17T00:00:00.000Z",
       schemaSource: "src/auth.ts:AuthService",
+    })).toThrow();
+    expect(() => ResourceCardSchema.parse({
+      id: "r1",
+      type: "text",
+      title: "Resource",
+      category: "documents",
+      tags: [],
+      timestamp: "2026-06-17T00:00:00.000Z",
+      enrichedAt: "not-a-date",
     })).toThrow();
   });
 });

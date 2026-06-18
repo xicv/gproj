@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readdirSync, statSync, unlinkSync, type Stats } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { resourcesBundleDir } from "../format/paths.js";
 import { type ResourceCard } from "../format/schema.js";
 import { createResourceCard, identityForFile, sourcePath, toPosix } from "./import.js";
@@ -109,9 +109,10 @@ function mapByHash(cards: ResourceCard[]): Map<string, ResourceCard> {
   return byHash;
 }
 
-function categoryFromScanRoot(scanRoot: string, absolutePath: string): string {
-  const parts = toPosix(relative(scanRoot, absolutePath)).split("/").filter(Boolean);
-  return parts.length > 1 ? parts[0] : "root";
+function categoryFromScanRoot(scanRootDir: string, absolutePath: string): string {
+  const rootCategory = basename(scanRootDir) || "root";
+  const parts = toPosix(relative(scanRootDir, absolutePath)).split("/").filter(Boolean);
+  return parts.length > 1 ? parts[0] : rootCategory;
 }
 
 function sameStat(a: Stats, b: Stats): boolean {
@@ -141,6 +142,8 @@ export function organiseResources(root: string, inputDir = ".", options: Organis
   const deleteRequested = options.deleteDuplicates === true;
   const scanRoot = resolve(root, inputDir);
   const files = scanResourceFiles(root, inputDir);
+  const scanRootStat = statSync(scanRoot);
+  const scanRootDir = scanRootStat.isFile() ? dirname(scanRoot) : scanRoot;
   const preRunCards = getAll(root);
   const preRunByHash = mapByHash(preRunCards);
   let cards: ResourceCard[] = preRunCards.map((card) => ({ ...card }));
@@ -181,7 +184,7 @@ export function organiseResources(root: string, inputDir = ".", options: Organis
 
     const card = createResourceCard(root, file.absolutePath, options.now ?? new Date(), {
       writeAsset: !dryRun,
-      category: options.category ?? categoryFromScanRoot(scanRoot, file.absolutePath),
+      category: options.category ?? categoryFromScanRoot(scanRootDir, file.absolutePath),
     });
     cards.push(card);
     if (card.contentHash) byHash.set(card.contentHash, card);
