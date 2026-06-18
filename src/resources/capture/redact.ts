@@ -37,11 +37,10 @@ function sourceForSecret(secret: string, env: NodeJS.ProcessEnv): string | null 
   return null;
 }
 
+const SAFE_REFERENCE_RE = /^(?:env|keychain|mcp):[A-Za-z0-9_.\/-]+$/;
+
 function isSafeReference(secret: string): boolean {
-  return secret === REDACTED_SECRET ||
-    secret.startsWith("env:") ||
-    secret.startsWith("keychain:") ||
-    secret.startsWith("mcp:");
+  return secret === REDACTED_SECRET || SAFE_REFERENCE_RE.test(secret);
 }
 
 function replacement(secret: string, context: RedactionContext): string {

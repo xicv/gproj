@@ -33,4 +33,12 @@ describe("capture redaction", () => {
     expect(JSON.stringify(redacted)).not.toContain("abcXYZ1234567890abcXYZ1234567890");
     expect(JSON.stringify(redacted)).toContain(REDACTED_SECRET);
   });
+
+  it("redacts prefixed tokens that are not canonical safe references", () => {
+    const rawSecret = "supersecretvalue1234567890ABC";
+    const result = redactText(`leaked env:FAKE=${rawSecret}`);
+
+    expect(result.text).not.toContain(rawSecret);
+    expect(result.text).toContain(REDACTED_SECRET);
+  });
 });
