@@ -161,6 +161,22 @@ export const catalogEntries: CatalogEntry[] = [
     example: "gproj resources enrich --category docs --limit 30",
   },
   {
+    name: "resources audit",
+    group: "resources",
+    summary: "Report structural metrics and optional judged link precision for resource cards.",
+    whenToUse: "Inspect coverage, graph connectivity, integrity issues, distributions, health score, and sampled LLM-judged link quality without mutating resources.",
+    usage: "gproj resources audit [--json] [--judge] [--sample <n>]",
+    example: "gproj resources audit --judge --sample 20",
+  },
+  {
+    name: "resources eval",
+    group: "resources",
+    summary: "Evaluate resource retrieval against an evalset.",
+    whenToUse: "Measure ranked resource search quality with precision, recall, nDCG, and optional link recall, or generate a candidate evalset.",
+    usage: "gproj resources eval <evalset.json> [--json] | gproj resources eval --generate [--out <file>]",
+    example: "gproj resources eval resources.eval.json",
+  },
+  {
     name: "resources schema",
     group: "resources",
     summary: "Resolve schemaSource pointers for a resource.",

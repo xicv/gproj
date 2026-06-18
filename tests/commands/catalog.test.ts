@@ -20,6 +20,7 @@ describe("catalog command", () => {
     expect(output).toContain("usage: gproj catalog [--json] [--intent <text>]");
     expect(output).toContain("usage: gproj resources enrich [--category <category>] [--limit <n>] [--dry-run] [--reenrich]");
     expect(output).toContain("usage: gproj resources find [--limit <n>|--all] <query>");
+    expect(output).toContain("usage: gproj resources eval <evalset.json> [--json]");
   });
 
   it("returns deterministic ranked intent matches", () => {

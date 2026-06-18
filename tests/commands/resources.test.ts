@@ -187,6 +187,57 @@ describe("resources command", () => {
     expect((await runResources(["find", "--all", "Auth"])).split("\n")).toHaveLength(3);
   });
 
+  it("runs judged audit through the resources command", async () => {
+    writeAll(root, [
+      {
+        id: "a",
+        type: "text",
+        title: "A",
+        category: "docs",
+        tags: [],
+        timestamp: "2026-06-18T00:00:00.000Z",
+        links: [{ rel: "references", toId: "b" }],
+      },
+      {
+        id: "b",
+        type: "text",
+        title: "B",
+        category: "docs",
+        tags: [],
+        timestamp: "2026-06-18T00:00:00.000Z",
+      },
+    ]);
+    const planner: PlannerBackend = {
+      name: "mock",
+      async ask() {
+        return JSON.stringify({ verdict: "correct", reason: "specific" });
+      },
+    };
+
+    const output = await runResources(["audit", "--judge", "--sample", "1"], { resourcePlanner: planner });
+
+    expect(output).toContain("resources audit: healthScore");
+    expect(output).toContain("link precision (judged 1): 100% correct, 0 weak, 0 incorrect");
+  });
+
+  it("runs retrieval eval through the resources command", async () => {
+    writeAll(root, [{
+      id: "auth",
+      type: "text",
+      title: "Auth Login",
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-18T00:00:00.000Z",
+    }]);
+    const evalset = join(root, "evalset.json");
+    writeFileSync(evalset, JSON.stringify({ queries: [{ query: "auth", expectedIds: ["auth"] }] }));
+
+    const output = await runResources(["eval", evalset]);
+
+    expect(output).toContain("resources eval: 1 queries, k=10");
+    expect(output).toContain("mean recall: 100%");
+  });
+
   it("returns a controlled error for an unknown id", async () => {
     await expect(runResources(["show", "missing"])).rejects.toThrow("resource not found: missing");
   });
@@ -273,6 +324,42 @@ describe("resources command", () => {
       resource: "docs/r1.md",
       links: [],
     })]);
+  });
+
+  it("prints parseable JSON for resources audit --json", async () => {
+    writeAll(root, [
+      {
+        id: "r1",
+        type: "text",
+        title: "Resource One",
+        category: "docs",
+        tags: ["alpha"],
+        timestamp: "2026-06-18T00:00:00.000Z",
+        links: [{ rel: "references", toId: "r2" }],
+        enrichedAt: "2026-06-18T00:00:00.000Z",
+      },
+      {
+        id: "r2",
+        type: "text",
+        title: "Resource Two",
+        category: "docs",
+        tags: [],
+        timestamp: "2026-06-18T00:00:00.000Z",
+      },
+    ]);
+
+    const report = JSON.parse(await runResources(["audit", "--json"]));
+
+    expect(report).toEqual(expect.objectContaining({
+      coverage: expect.any(Object),
+      connectivity: expect.any(Object),
+      integrity: expect.any(Object),
+      distribution: expect.any(Object),
+      healthScore: expect.any(Number),
+      flags: expect.any(Array),
+    }));
+    expect(report.coverage.total).toBe(2);
+    expect(report.connectivity.componentCount).toBe(1);
   });
 
   it("organises files, links resources, and runs resource doctor", async () => {
