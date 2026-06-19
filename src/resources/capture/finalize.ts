@@ -7,12 +7,18 @@ import { slugify } from "../import.js";
 import { discardPendingCapture, readPendingCapture, type PendingCapture } from "./pending.js";
 import { containsUnredactedSecret, redactText } from "./redact.js";
 
+const coercedString = (schema: z.ZodString) =>
+  z.preprocess(
+    (value) => (Array.isArray(value) ? value.map((entry) => String(entry)).join("\n") : value),
+    schema,
+  );
+
 const PlannerSopSchema = z.object({
-  title: z.string().min(1),
-  body: z.string().min(1),
+  title: coercedString(z.string().min(1)),
+  body: coercedString(z.string().min(1)),
   facts: z.array(z.string()).default([]),
   repro: z.array(z.string()).default([]),
-  resolution: z.string().default(""),
+  resolution: coercedString(z.string()).default(""),
   triggers: z.array(z.string()).default([]),
 }).strict();
 
