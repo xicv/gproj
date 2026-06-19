@@ -13,6 +13,7 @@ export type JournalEvent =
   "sandbox_discard" |
   "recover" |
   "resource-added" |
+  "resources-grounded" |
   "resources-organised" |
   "resource-linked" |
   "resource-removed" |

@@ -9,6 +9,8 @@ import {
 } from "../format/schema.js";
 import { sanitize } from "../redact/sanitize.js";
 import { relatedCandidates } from "./candidates.js";
+import { buildCodeIndex, type CodeIndex } from "./codeIndex.js";
+import { groundCard, type Grounding } from "./codeGround.js";
 import { getAll, writeAll } from "./manifest.js";
 import { renderOkfBundle } from "./okf.js";
 import { resolveSchemaSource } from "./schemaSource.js";
@@ -56,6 +58,7 @@ export interface EnrichOptions {
   maxExcerptChars?: number;
   maxIndexEntries?: number;
   maxIndexChars?: number;
+  codeRoot?: string;
 }
 
 export interface EnrichSummary {
@@ -226,6 +229,24 @@ function mergeOwns(existing: ResourceOwns | undefined, enrichment: PlannerCardEn
   };
 }
 
+function mergeGrounding(card: ResourceCard, grounding: Grounding): ResourceCard {
+  if (grounding.symbols.length === 0 && grounding.endpoints.length === 0 && grounding.schemaSource.length === 0) return card;
+  const symbols = uniqueSorted([...(card.owns?.symbols ?? []), ...grounding.symbols]);
+  const endpoints = uniqueSorted([...(card.owns?.endpoints ?? []), ...grounding.endpoints]);
+  const configKeys = uniqueSorted(card.owns?.configKeys ?? []);
+  const schemaSource = uniqueSorted([...(card.schemaSource ?? []), ...grounding.schemaSource]);
+  const owns = mergeOwns(card.owns, {
+    symbols,
+    endpoints,
+    configKeys,
+  });
+  return ResourceCardSchema.parse({
+    ...card,
+    owns: owns.symbols.length > 0 || owns.endpoints.length > 0 || owns.configKeys.length > 0 ? owns : undefined,
+    schemaSource: schemaSource.length > 0 ? schemaSource : undefined,
+  });
+}
+
 function mergeLinks(existing: ResourceLink[] | undefined, enrichment: PlannerCardEnrichment["links"], knownIds: Set<string>, currentId: string): ResourceLink[] | undefined {
   const byTarget = new Map<string, ResourceLink>();
   for (const link of [...(existing ?? []), ...enrichment]) {
@@ -326,7 +347,7 @@ async function prepareBatch(
 function commitBatch(
   root: string,
   prepared: PreparedBatchSuccess,
-  options: { dryRun: boolean; knownIds: Set<string>; enrichedAt: string; events: Array<Record<string, unknown>> },
+  options: { dryRun: boolean; knownIds: Set<string>; enrichedAt: string; events: Array<Record<string, unknown>>; codeIndex?: CodeIndex },
 ): { enriched: number; unchanged: number } {
   const current = getAll(root);
   const byId = new Map(current.map((card) => [card.id, card]));
@@ -338,7 +359,8 @@ function commitBatch(
     const currentCard = byId.get(card.id);
     const enrichment = prepared.enrichments.get(card.id);
     if (!currentCard || !enrichment) continue;
-    const next = mergeEnrichment(root, currentCard, enrichment, options.knownIds, options.enrichedAt);
+    const enrichedCard = mergeEnrichment(root, currentCard, enrichment, options.knownIds, options.enrichedAt);
+    const next = options.codeIndex ? mergeGrounding(enrichedCard, groundCard(enrichedCard, options.codeIndex)) : enrichedCard;
     const fields = changedFields(currentCard, next);
     if (fields.length === 0) {
       unchanged += 1;
@@ -391,6 +413,7 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
   const summary: EnrichSummary = { selected: candidates.length, enriched: 0, skipped, failed: 0, unchanged: 0 };
   const knownIds = new Set(allCards.map((card) => card.id));
   const enrichedAt = (options.now ?? new Date()).toISOString();
+  const codeIndex = options.codeRoot ? buildCodeIndex(options.codeRoot) : undefined;
   const packOptions = {
     maxExcerptChars: options.maxExcerptChars ?? defaultMaxExcerptChars,
     maxIndexEntries: options.maxIndexEntries ?? defaultMaxIndexEntries,
@@ -433,7 +456,7 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
       continue;
     }
 
-    const counts = commitBatch(root, result, { dryRun, knownIds, enrichedAt, events });
+    const counts = commitBatch(root, result, { dryRun, knownIds, enrichedAt, events, codeIndex });
     summary.enriched += counts.enriched;
     summary.unchanged += counts.unchanged;
     events.push({

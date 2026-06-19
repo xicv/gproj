@@ -326,6 +326,37 @@ describe("resources command", () => {
     })]);
   });
 
+  it("grounds resource cards from a code root and refreshes the manifest/index", async () => {
+    mkdirSync(join(root, "code"), { recursive: true });
+    writeFileSync(join(root, "code", "auth.ts"), [
+      "export class AuthService {}",
+      "router.get('/api/auth', handler);",
+    ].join("\n"));
+    writeAll(root, [{
+      id: "auth-doc",
+      type: "text",
+      title: "AuthService guide",
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-19T00:00:00.000Z",
+      body: "AuthService owns GET /api/auth.",
+    }]);
+
+    const output = await runResources(["ground", "--code-root", "code"]);
+    const [card] = getAll(root);
+
+    expect(output).toContain(`grounded 1 cards from ${join(root, "code")}: +1 symbols, +1 endpoints, +1 schemaSource refs`);
+    expect(output).toContain("index: 1 symbols, 1 endpoints");
+    expect(card.owns).toEqual({ symbols: ["AuthService"], endpoints: ["GET /api/auth"], configKeys: [] });
+    expect(card.schemaSource).toEqual(["auth.ts:AuthService"]);
+    const index = JSON.parse(readFileSync(resourcesIndexPath(root), "utf8"));
+    expect(index[0]).toMatchObject({
+      id: "auth-doc",
+      owns: { symbols: ["AuthService"], endpoints: ["GET /api/auth"], configKeys: [] },
+      schemaSource: ["auth.ts:AuthService"],
+    });
+  });
+
   it("prints parseable JSON for resources audit --json", async () => {
     writeAll(root, [
       {
@@ -485,6 +516,33 @@ describe("resources command", () => {
     await runResources(["enrich", "--dry-run", "--batch-size", "3"], { resourcePlanner: planner });
 
     expect(calls.map((ids) => ids.length)).toEqual([3, 3, 1]);
+  });
+
+  it("passes resources enrich --code-root through to deterministic grounding", async () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "billing.ts"), "export class BillingService {}\n");
+    writeAll(root, [({
+      id: "billing",
+      type: "text",
+      title: "Billing",
+      category: "docs",
+      tags: [],
+      timestamp: "2026-06-19T00:00:00.000Z",
+      body: "BillingService flow",
+    })]);
+    const planner: PlannerBackend = {
+      name: "mock",
+      async ask() {
+        return JSON.stringify({ billing: { tags: [], owns: {}, schemaSource: [], links: [] } });
+      },
+    };
+
+    await runResources(["enrich", "--code-root", "src"], { resourcePlanner: planner });
+
+    expect(getAll(root)[0]).toMatchObject({
+      owns: { symbols: ["BillingService"], endpoints: [], configKeys: [] },
+      schemaSource: ["billing.ts:BillingService"],
+    });
   });
 
   it("rejects invalid resources enrich --batch-size values with usage", async () => {
