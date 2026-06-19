@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { relative, resolve, sep } from "node:path";
 import type { ResourceCard } from "../format/schema.js";
 import { buildCodeIndex, type CodeIndex } from "./codeIndex.js";
-import { groundCard } from "./codeGround.js";
+import { groundCard, rebaseGroundingPaths } from "./codeGround.js";
 import { getAll } from "./manifest.js";
 import { resolveSchemaSource, type SchemaSourceStatus } from "./schemaSource.js";
 import { preferenceFor, readResolutions, type ConflictResolution } from "./resolutions.js";
@@ -44,13 +43,6 @@ function splitPointer(pointer: string): { path: string; symbol: string } | null 
   return { path: pointer.slice(0, sep), symbol: pointer.slice(sep + 1) };
 }
 
-function rebasePointer(root: string, codeRoot: string, pointer: string): string {
-  const parsed = splitPointer(pointer);
-  if (!parsed) return pointer;
-  const rel = relative(root, resolve(codeRoot, parsed.path)).split(sep).join("/");
-  return `${rel}:${parsed.symbol}`;
-}
-
 function sorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
@@ -69,17 +61,17 @@ function fingerprintOf(
       schemaSource: [...unconfirmed.schemaSource].sort(),
     },
   });
-  return createHash("sha256").update(payload).digest("hex").slice(0, 16);
+  return createHash("sha256").update(payload).digest("hex");
 }
 
 export function conflictForCard(root: string, card: ResourceCard, index: CodeIndex, codeRoot: string): CardConflict | null {
   const docSymbols = sorted(card.owns?.symbols ?? []);
   const docEndpoints = sorted(card.owns?.endpoints ?? []);
   const docSchemaSource = sorted(card.schemaSource ?? []);
-  const grounding = groundCard(card, index);
+  const grounding = rebaseGroundingPaths(root, codeRoot, groundCard(card, index));
   const codeSymbols = grounding.symbols;
   const codeEndpoints = grounding.endpoints;
-  const codeSchemaSource = grounding.schemaSource.map((pointer) => rebasePointer(root, codeRoot, pointer));
+  const codeSchemaSource = grounding.schemaSource;
 
   // dangling: doc pointers that no longer resolve against the code.
   const dangling: DanglingConflict[] = [];

@@ -348,12 +348,12 @@ describe("resources command", () => {
     expect(output).toContain(`grounded 1 cards from ${join(root, "code")}: +1 symbols, +1 endpoints, +1 schemaSource refs`);
     expect(output).toContain("index: 1 symbols, 1 endpoints");
     expect(card.owns).toEqual({ symbols: ["AuthService"], endpoints: ["GET /api/auth"], configKeys: [] });
-    expect(card.schemaSource).toEqual(["auth.ts:AuthService"]);
+    expect(card.schemaSource).toEqual(["code/auth.ts:AuthService"]);
     const index = JSON.parse(readFileSync(resourcesIndexPath(root), "utf8"));
     expect(index[0]).toMatchObject({
       id: "auth-doc",
       owns: { symbols: ["AuthService"], endpoints: ["GET /api/auth"], configKeys: [] },
-      schemaSource: ["auth.ts:AuthService"],
+      schemaSource: ["code/auth.ts:AuthService"],
     });
   });
 
@@ -541,7 +541,7 @@ describe("resources command", () => {
 
     expect(getAll(root)[0]).toMatchObject({
       owns: { symbols: ["BillingService"], endpoints: [], configKeys: [] },
-      schemaSource: ["billing.ts:BillingService"],
+      schemaSource: ["src/billing.ts:BillingService"],
     });
   });
 
