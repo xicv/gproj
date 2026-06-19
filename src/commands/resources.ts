@@ -1,5 +1,5 @@
 import { existsSync, unlinkSync } from "node:fs";
-import { isAbsolute, join, normalize, sep } from "node:path";
+import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { getPlannerBackend, PlannerUnavailableError, type PlannerBackend } from "../backends/planner.js";
 import { appendJournal } from "../format/journal.js";
@@ -16,6 +16,8 @@ import { enrichResources, renderEnrichResult } from "../resources/enrich.js";
 import { importResource } from "../resources/import.js";
 import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manifest.js";
 import { auditCards, type AuditReport } from "../resources/audit.js";
+import { buildCodeIndex } from "../resources/codeIndex.js";
+import { groundCard, type Grounding } from "../resources/codeGround.js";
 import { evalRetrieval, generateEvalSet, readEvalSetFile, renderRetrievalEvalReport, writeEvalSet } from "../resources/eval.js";
 import { rankFind, type RankedResource } from "../resources/find.js";
 import { judgeLinks, renderJudgeReport } from "../resources/judge.js";
@@ -28,7 +30,7 @@ import { installStopHook } from "../resources/capture/hook.js";
 import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich] [--relink] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | ground [--code-root <path>] | enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--code-root <path>] [--dry-run] [--reenrich] [--relink] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
 }
 
 export interface ResourcesDeps {
@@ -314,6 +316,86 @@ function indexResources(root: string, args: string[]): string {
   return ".gproj/resources/.okf-index.json";
 }
 
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+function mergeGrounding(card: ResourceCard, grounding: Grounding): { card: ResourceCard; symbols: number; endpoints: number; schemaSource: number } {
+  const beforeSymbols = card.owns?.symbols ?? [];
+  const beforeEndpoints = card.owns?.endpoints ?? [];
+  const beforeConfigKeys = card.owns?.configKeys ?? [];
+  const beforeSchemaSource = card.schemaSource ?? [];
+  const symbols = uniqueSorted([...beforeSymbols, ...grounding.symbols]);
+  const endpoints = uniqueSorted([...beforeEndpoints, ...grounding.endpoints]);
+  const schemaSource = uniqueSorted([...beforeSchemaSource, ...grounding.schemaSource]);
+
+  return {
+    card: ResourceCardSchema.parse({
+      ...card,
+      owns: symbols.length > 0 || endpoints.length > 0 || beforeConfigKeys.length > 0
+        ? { symbols, endpoints, configKeys: uniqueSorted(beforeConfigKeys) }
+        : undefined,
+      schemaSource: schemaSource.length > 0 ? schemaSource : undefined,
+    }),
+    symbols: symbols.length - beforeSymbols.length,
+    endpoints: endpoints.length - beforeEndpoints.length,
+    schemaSource: schemaSource.length - beforeSchemaSource.length,
+  };
+}
+
+function parseCodeRootArgs(args: string[]): { codeRoot?: string } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: false,
+    options: {
+      "code-root": { type: "string" },
+    },
+  });
+  return { codeRoot: typeof parsed.values["code-root"] === "string" ? parsed.values["code-root"] : undefined };
+}
+
+function resolveCodeRoot(root: string, codeRoot?: string): string {
+  if (codeRoot !== undefined) return resolve(root, codeRoot);
+  const src = join(root, "src");
+  return existsSync(src) ? src : root;
+}
+
+function groundResources(root: string, args: string[]): string {
+  const options = parseCodeRootArgs(args);
+  const codeRoot = resolveCodeRoot(root, options.codeRoot);
+  const index = buildCodeIndex(codeRoot);
+  const cards = getAll(root);
+  const updates = new Map<string, ResourceCard>();
+  let changedCards = 0;
+  let addedSymbols = 0;
+  let addedEndpoints = 0;
+  let addedSchemaSource = 0;
+
+  for (const card of cards) {
+    const grounding = groundCard(card, index);
+    if (grounding.symbols.length === 0 && grounding.endpoints.length === 0 && grounding.schemaSource.length === 0) continue;
+    const merged = mergeGrounding(card, grounding);
+    if (JSON.stringify(card) === JSON.stringify(merged.card)) continue;
+    changedCards += 1;
+    addedSymbols += merged.symbols;
+    addedEndpoints += merged.endpoints;
+    addedSchemaSource += merged.schemaSource;
+    updates.set(card.id, merged.card);
+  }
+
+  if (updates.size > 0) {
+    const nextCards = cards.map((card) => updates.get(card.id) ?? card);
+    writeAll(root, nextCards);
+    renderOkfBundle(root, nextCards);
+    appendJournal(root, { phase: 0, event: "resources-grounded", status: "ok", detail: `cards=${changedCards}; symbols=${addedSymbols}; endpoints=${addedEndpoints}; schemaSource=${addedSchemaSource}` });
+  }
+
+  return [
+    `grounded ${changedCards} cards from ${codeRoot}: +${addedSymbols} symbols, +${addedEndpoints} endpoints, +${addedSchemaSource} schemaSource refs`,
+    `index: ${index.symbols.size} symbols, ${index.endpoints.length} endpoints`,
+  ].join("\n");
+}
+
 function parseOrganiseArgs(args: string[]): { dir: string; dryRun: boolean; deleteDuplicates: boolean; category?: string } {
   const parsed = parseArgs({
     args,
@@ -354,7 +436,7 @@ function parseEnrichBatchSize(value: string | boolean | string[] | undefined): n
   }
 }
 
-function parseEnrichArgs(args: string[]): { category?: string; limit?: number; batchSize?: number; dryRun: boolean; reenrich: boolean; relink: boolean } {
+function parseEnrichArgs(args: string[]): { category?: string; limit?: number; batchSize?: number; codeRoot?: string; dryRun: boolean; reenrich: boolean; relink: boolean } {
   const parsed = parseArgs({
     args,
     allowPositionals: false,
@@ -362,6 +444,7 @@ function parseEnrichArgs(args: string[]): { category?: string; limit?: number; b
       category: { type: "string" },
       limit: { type: "string" },
       "batch-size": { type: "string" },
+      "code-root": { type: "string" },
       "dry-run": { type: "boolean", default: false },
       reenrich: { type: "boolean", default: false },
       relink: { type: "boolean", default: false },
@@ -371,6 +454,7 @@ function parseEnrichArgs(args: string[]): { category?: string; limit?: number; b
     category: typeof parsed.values.category === "string" ? parsed.values.category : undefined,
     limit: parsePositiveInteger(typeof parsed.values.limit === "string" ? parsed.values.limit : undefined, "--limit"),
     batchSize: parseEnrichBatchSize(parsed.values["batch-size"]),
+    codeRoot: typeof parsed.values["code-root"] === "string" ? parsed.values["code-root"] : undefined,
     dryRun: parsed.values["dry-run"] === true,
     reenrich: parsed.values.reenrich === true,
     relink: parsed.values.relink === true,
@@ -384,6 +468,7 @@ async function enrich(root: string, args: string[], deps: ResourcesDeps): Promis
     category: options.category,
     limit: options.limit,
     batchSize: options.batchSize,
+    codeRoot: options.codeRoot !== undefined ? resolveCodeRoot(root, options.codeRoot) : undefined,
     dryRun: options.dryRun,
     reenrich: options.reenrich,
     relink: options.relink,
@@ -600,6 +685,8 @@ export async function runResources(root: string, args: string[], deps: Resources
       return addResource(root, rest);
     case "organise":
       return organise(root, rest);
+    case "ground":
+      return groundResources(root, rest);
     case "enrich":
       return enrich(root, rest, deps);
     case "audit":
@@ -632,7 +719,7 @@ export async function runResources(root: string, args: string[], deps: Resources
 
 export function isResourcesMutation(args: string[]): boolean {
   const [verb, ...rest] = args;
-  if (verb === "add" || verb === "link" || verb === "rm" || verb === "index") return true;
+  if (verb === "add" || verb === "ground" || verb === "link" || verb === "rm" || verb === "index") return true;
   if (verb === "enrich") {
     try {
       return !parseEnrichArgs(rest).dryRun;

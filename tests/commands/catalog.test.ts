@@ -18,7 +18,8 @@ describe("catalog command", () => {
     expect(output).toContain("capture:");
     expect(output).toContain("agent:");
     expect(output).toContain("usage: gproj catalog [--json] [--intent <text>]");
-    expect(output).toContain("usage: gproj resources enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--dry-run] [--reenrich] [--relink]");
+    expect(output).toContain("usage: gproj resources enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--code-root <path>] [--dry-run] [--reenrich] [--relink]");
+    expect(output).toContain("usage: gproj resources ground [--code-root <path>]");
     expect(output).toContain("usage: gproj resources find [--limit <n>|--all] <query>");
     expect(output).toContain("usage: gproj resources eval <evalset.json> [--json]");
   });
