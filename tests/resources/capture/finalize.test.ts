@@ -68,6 +68,28 @@ describe("capture finalize", () => {
     expect(() => readPendingCapture(root, pending.id)).toThrow(/not found/);
   });
 
+  it("coerces planner free-text fields returned as arrays into joined strings", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gproj-"));
+    const pending = writePending(root);
+
+    const result = await finalizePendingCapture(root, pending.id, {
+      planner: planner({
+        title: "Update RPA job datetime",
+        body: ["Stored times are UTC.", "Display is the tenant airport timezone."],
+        facts: ["DB stores UTC."],
+        repro: ["Open the job in manage-completed"],
+        resolution: ["Resolve airport.timezone", "Convert local to UTC", "UPDATE rpa_jobs SET started_at"],
+        triggers: ["rpa", "job"],
+      }),
+      now: new Date("2026-06-18T01:00:00.000Z"),
+    });
+
+    expect(result.action).toBe("added");
+    expect(result.card.resolution).toBe("Resolve airport.timezone\nConvert local to UTC\nUPDATE rpa_jobs SET started_at");
+    expect(result.card.body).toContain("Stored times are UTC.");
+    expect(result.card.body).toContain("Display is the tenant airport timezone.");
+  });
+
   it("rejects planner injection and preserves pending captures", async () => {
     const root = mkdtempSync(join(tmpdir(), "gproj-"));
     const pending = writePending(root);
