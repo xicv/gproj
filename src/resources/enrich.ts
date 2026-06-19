@@ -10,7 +10,7 @@ import {
 import { sanitize } from "../redact/sanitize.js";
 import { relatedCandidates } from "./candidates.js";
 import { buildCodeIndex, type CodeIndex } from "./codeIndex.js";
-import { groundCard, type Grounding } from "./codeGround.js";
+import { groundCard, rebaseGroundingPaths, type Grounding } from "./codeGround.js";
 import { getAll, writeAll } from "./manifest.js";
 import { renderOkfBundle } from "./okf.js";
 import { resolveSchemaSource } from "./schemaSource.js";
@@ -356,7 +356,7 @@ function groundEnriched(
   if (!codeIndex) return card;
   const conflict = conflictForCard(root, card, codeIndex, codeRoot ?? root);
   if (conflict && preferenceFor(resolutions, card.id, conflict.fingerprint) === "doc") return card;
-  return mergeGrounding(card, groundCard(card, codeIndex));
+  return mergeGrounding(card, rebaseGroundingPaths(root, codeRoot ?? root, groundCard(card, codeIndex)));
 }
 
 function commitBatch(

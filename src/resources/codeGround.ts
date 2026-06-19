@@ -1,5 +1,6 @@
 import type { ResourceCard } from "../format/schema.js";
 import type { CodeIndex } from "./codeIndex.js";
+import { relative, resolve, sep } from "node:path";
 
 export interface Grounding {
   symbols: string[];
@@ -40,5 +41,22 @@ export function groundCard(card: ResourceCard, index: CodeIndex): Grounding {
     symbols: uniqueSorted(symbols),
     endpoints: uniqueSorted(endpoints),
     schemaSource: uniqueSorted(schemaSource),
+  };
+}
+
+// Rebase a grounding's schemaSource pointers (emitted relative to the code index's
+// codeRoot) to be relative to the project root, so stored pointers stay consistent with
+// resolveSchemaSource (which resolves against root) regardless of the --code-root used.
+export function rebaseGroundingPaths(root: string, codeRoot: string, grounding: Grounding): Grounding {
+  return {
+    symbols: grounding.symbols,
+    endpoints: grounding.endpoints,
+    schemaSource: grounding.schemaSource.map((pointer) => {
+      const separator = pointer.lastIndexOf(":");
+      if (separator <= 0 || separator === pointer.length - 1) return pointer;
+      const path = pointer.slice(0, separator);
+      const symbol = pointer.slice(separator + 1);
+      return `${relative(root, resolve(codeRoot, path)).split(sep).join("/")}:${symbol}`;
+    }),
   };
 }

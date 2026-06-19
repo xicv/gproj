@@ -90,5 +90,7 @@ describe("resources ground without resolution", () => {
     writeAll(root, [card()]);
     await runResources(root, ["ground", ...codeRoot]);
     expect(getAll(root)[0].owns?.symbols).toEqual(["Widget"]);
+    // stored schemaSource is root-relative (src/widget.ts), not code-root-relative (widget.ts)
+    expect(getAll(root)[0].schemaSource).toEqual(["src/widget.ts:Widget"]);
   });
 });

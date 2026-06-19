@@ -17,7 +17,7 @@ import { importResource } from "../resources/import.js";
 import { add, getAll, linkCards, removeCard, writeAll } from "../resources/manifest.js";
 import { auditCards, type AuditReport } from "../resources/audit.js";
 import { buildCodeIndex } from "../resources/codeIndex.js";
-import { groundCard, type Grounding } from "../resources/codeGround.js";
+import { groundCard, rebaseGroundingPaths, type Grounding } from "../resources/codeGround.js";
 import { evalRetrieval, generateEvalSet, readEvalSetFile, renderRetrievalEvalReport, writeEvalSet } from "../resources/eval.js";
 import { rankFind, type RankedResource } from "../resources/find.js";
 import { judgeLinks, renderJudgeReport } from "../resources/judge.js";
@@ -377,7 +377,7 @@ function groundResources(root: string, args: string[]): string {
   for (const card of cards) {
     const conflict = conflictForCard(root, card, index, codeRoot);
     if (conflict && preferenceFor(resolutions, card.id, conflict.fingerprint) === "doc") continue;
-    const grounding = groundCard(card, index);
+    const grounding = rebaseGroundingPaths(root, codeRoot, groundCard(card, index));
     if (grounding.symbols.length === 0 && grounding.endpoints.length === 0 && grounding.schemaSource.length === 0) continue;
     const merged = mergeGrounding(card, grounding);
     if (JSON.stringify(card) === JSON.stringify(merged.card)) continue;

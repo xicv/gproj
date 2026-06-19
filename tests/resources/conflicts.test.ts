@@ -73,7 +73,7 @@ describe("conflictForCard", () => {
     const a = conflictForCard("/tmp/none", card({ body: "Widget" }), index, "/tmp/none");
     const b = conflictForCard("/tmp/none", card({ body: "Widget" }), index, "/tmp/none");
     expect(a?.fingerprint).toBe(b?.fingerprint);
-    expect(a?.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(a?.fingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
