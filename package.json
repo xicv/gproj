@@ -1,6 +1,6 @@
 {
   "name": "@nickcao/gproj",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "GPT Project persistent-planner-brain CLI",
   "type": "module",
   "license": "MIT",
