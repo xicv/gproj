@@ -14,6 +14,8 @@ import { groundCard, type Grounding } from "./codeGround.js";
 import { getAll, writeAll } from "./manifest.js";
 import { renderOkfBundle } from "./okf.js";
 import { resolveSchemaSource } from "./schemaSource.js";
+import { conflictForCard } from "./conflicts.js";
+import { preferenceFor, readResolutions, type ConflictResolution } from "./resolutions.js";
 
 const defaultBatchSize = 8; // smaller batches keep the planner's JSON response within limits — candidate-grounded linking makes per-card output larger
 const defaultConcurrency = 1;
@@ -344,10 +346,23 @@ async function prepareBatch(
   }
 }
 
+function groundEnriched(
+  root: string,
+  card: ResourceCard,
+  codeIndex: CodeIndex | undefined,
+  codeRoot: string | undefined,
+  resolutions: ConflictResolution[],
+): ResourceCard {
+  if (!codeIndex) return card;
+  const conflict = conflictForCard(root, card, codeIndex, codeRoot ?? root);
+  if (conflict && preferenceFor(resolutions, card.id, conflict.fingerprint) === "doc") return card;
+  return mergeGrounding(card, groundCard(card, codeIndex));
+}
+
 function commitBatch(
   root: string,
   prepared: PreparedBatchSuccess,
-  options: { dryRun: boolean; knownIds: Set<string>; enrichedAt: string; events: Array<Record<string, unknown>>; codeIndex?: CodeIndex },
+  options: { dryRun: boolean; knownIds: Set<string>; enrichedAt: string; events: Array<Record<string, unknown>>; codeIndex?: CodeIndex; codeRoot?: string; resolutions: ConflictResolution[] },
 ): { enriched: number; unchanged: number } {
   const current = getAll(root);
   const byId = new Map(current.map((card) => [card.id, card]));
@@ -360,7 +375,7 @@ function commitBatch(
     const enrichment = prepared.enrichments.get(card.id);
     if (!currentCard || !enrichment) continue;
     const enrichedCard = mergeEnrichment(root, currentCard, enrichment, options.knownIds, options.enrichedAt);
-    const next = options.codeIndex ? mergeGrounding(enrichedCard, groundCard(enrichedCard, options.codeIndex)) : enrichedCard;
+    const next = groundEnriched(root, enrichedCard, options.codeIndex, options.codeRoot, options.resolutions);
     const fields = changedFields(currentCard, next);
     if (fields.length === 0) {
       unchanged += 1;
@@ -414,6 +429,7 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
   const knownIds = new Set(allCards.map((card) => card.id));
   const enrichedAt = (options.now ?? new Date()).toISOString();
   const codeIndex = options.codeRoot ? buildCodeIndex(options.codeRoot) : undefined;
+  const resolutions = codeIndex ? readResolutions(root) : [];
   const packOptions = {
     maxExcerptChars: options.maxExcerptChars ?? defaultMaxExcerptChars,
     maxIndexEntries: options.maxIndexEntries ?? defaultMaxIndexEntries,
@@ -456,7 +472,7 @@ export async function enrichResources(root: string, options: EnrichOptions): Pro
       continue;
     }
 
-    const counts = commitBatch(root, result, { dryRun, knownIds, enrichedAt, events, codeIndex });
+    const counts = commitBatch(root, result, { dryRun, knownIds, enrichedAt, events, codeIndex, codeRoot: options.codeRoot, resolutions });
     summary.enriched += counts.enriched;
     summary.unchanged += counts.unchanged;
     events.push({

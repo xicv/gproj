@@ -185,6 +185,22 @@ export const catalogEntries: CatalogEntry[] = [
     example: "gproj resources audit --judge --sample 20",
   },
   {
+    name: "resources conflicts",
+    group: "resources",
+    summary: "Detect and report doc-vs-code conflicts on resource cards.",
+    whenToUse: "Surface dangling schemaSource, doc/code path mismatches, and unconfirmed code groundings before reconciling.",
+    usage: "gproj resources conflicts [--code-root <path>]",
+    example: "gproj resources conflicts --code-root src",
+  },
+  {
+    name: "resources resolve",
+    group: "resources",
+    summary: "Resolve a resource conflict by choosing code or doc as source of truth.",
+    whenToUse: "Pick the authoritative side for a conflicted card so future enrich/ground honor the choice.",
+    usage: "gproj resources resolve <id> --prefer code|doc [--code-root <path>]",
+    example: "gproj resources resolve resource-id --prefer code",
+  },
+  {
     name: "resources eval",
     group: "resources",
     summary: "Evaluate resource retrieval against an evalset.",

@@ -20,6 +20,7 @@ export type JournalEvent =
   "capture-pending" |
   "capture-finalized" |
   "capture-discarded" |
+  "resource-conflict-resolved" |
   "abort";
 
 export interface JournalEntry {

@@ -16,6 +16,8 @@ export const resourcesManifestPath = (root: string) => filePath(root, "resources
 export const resourcesSharedManifestPath = (root: string) => filePath(root, "resources.shared.ndjson");
 export const resourcesBundleDir = (root: string) => filePath(root, "resources");
 export const resourcesIndexPath = (root: string) => join(resourcesBundleDir(root), ".okf-index.json");
+export const resourcesConflictsPath = (root: string) => join(resourcesBundleDir(root), "conflicts.md");
+export const resourcesResolutionsPath = (root: string) => join(resourcesBundleDir(root), "resolutions.ndjson");
 export const resourceAssetDir = (root: string) => join(resourcesBundleDir(root), "_assets");
 export const resourcesPendingDir = (root: string) => join(resourcesBundleDir(root), "pending");
 export const resourcesCaptureBookmarkPath = (root: string) => join(resourcesBundleDir(root), ".capture-bookmark.json");

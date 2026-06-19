@@ -1,9 +1,9 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { getPlannerBackend, PlannerUnavailableError, type PlannerBackend } from "../backends/planner.js";
 import { appendJournal } from "../format/journal.js";
-import { resourcesBundleDir } from "../format/paths.js";
+import { ensureParentDir, resourcesBundleDir, resourcesConflictsPath } from "../format/paths.js";
 import {
   ResourceCardSchema,
   ResourceRelationSchema,
@@ -24,13 +24,15 @@ import { judgeLinks, renderJudgeReport } from "../resources/judge.js";
 import { organiseResources, renderOrganiseResult } from "../resources/organise.js";
 import { buildOkfIndex, readOkfIndex, renderOkfBundle, writeOkfIndex } from "../resources/okf.js";
 import { resolveSchemaSource, type SchemaSourceResolution } from "../resources/schemaSource.js";
+import { applyCodeSide, conflictForCard, detectConflicts, renderConflictsReport } from "../resources/conflicts.js";
+import { appendResolution, ConflictPreferenceSchema, preferenceFor, readResolutions } from "../resources/resolutions.js";
 import { captureSession, renderCaptureResult } from "../resources/capture/capture.js";
 import { finalizePendingCapture } from "../resources/capture/finalize.js";
 import { installStopHook } from "../resources/capture/hook.js";
 import { discardPendingCapture, listPendingCaptures } from "../resources/capture/pending.js";
 
 function usage(): string {
-  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | ground [--code-root <path>] | enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--code-root <path>] [--dry-run] [--reenrich] [--relink] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
+  return "usage: gproj resources add [--category <category>] [--title <title>] [--type <type>] [--tags <a,b,c>] [--link <rel>:<toId>] [--intent <intent>] [--owns-symbol <symbol>] [--owns-endpoint <endpoint>] [--owns-config <key>] [--schema-source <path:Symbol>] <path> | organise [--dry-run] [--delete] [--category <category>] [dir] | ground [--code-root <path>] | enrich [--category <category>] [--limit <n>] [--batch-size <n>] [--code-root <path>] [--dry-run] [--reenrich] [--relink] | audit [--json] [--judge] [--sample <n>] | eval <evalset.json> [--json] | eval --generate [--out <file>] | list [--category <category>] | show <id> | find [--limit <n>|--all] <query> | schema <id> | index | link <fromId> <rel> <toId> | rm <id> | doctor | conflicts [--code-root <path>] | resolve <id> --prefer code|doc [--code-root <path>] | capture [--auto] --session <id> | capture list | capture finalize <id> [--share] [--add|--refine <id>] | capture discard <id> | capture install-hook [--global|--project] [--uninstall]";
 }
 
 export interface ResourcesDeps {
@@ -371,7 +373,10 @@ function groundResources(root: string, args: string[]): string {
   let addedEndpoints = 0;
   let addedSchemaSource = 0;
 
+  const resolutions = readResolutions(root);
   for (const card of cards) {
+    const conflict = conflictForCard(root, card, index, codeRoot);
+    if (conflict && preferenceFor(resolutions, card.id, conflict.fingerprint) === "doc") continue;
     const grounding = groundCard(card, index);
     if (grounding.symbols.length === 0 && grounding.endpoints.length === 0 && grounding.schemaSource.length === 0) continue;
     const merged = mergeGrounding(card, grounding);
@@ -394,6 +399,62 @@ function groundResources(root: string, args: string[]): string {
     `grounded ${changedCards} cards from ${codeRoot}: +${addedSymbols} symbols, +${addedEndpoints} endpoints, +${addedSchemaSource} schemaSource refs`,
     `index: ${index.symbols.size} symbols, ${index.endpoints.length} endpoints`,
   ].join("\n");
+}
+
+function conflictsResources(root: string, args: string[]): string {
+  const options = parseCodeRootArgs(args);
+  const codeRoot = resolveCodeRoot(root, options.codeRoot);
+  const result = detectConflicts(root, codeRoot);
+  const path = resourcesConflictsPath(root);
+  ensureParentDir(path);
+  writeFileSync(path, renderConflictsReport(result));
+  return [
+    `resources conflicts: ${result.conflicts.length} unresolved, ${result.resolved} resolved (honored)`,
+    "report: .gproj/resources/conflicts.md",
+    `index: ${result.index.symbols.size} symbols, ${result.index.endpoints.length} endpoints`,
+  ].join("\n");
+}
+
+function parseResolveArgs(args: string[]): { id: string; prefer: "code" | "doc"; codeRoot?: string } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      prefer: { type: "string" },
+      "code-root": { type: "string" },
+    },
+  });
+  if (parsed.positionals.length !== 1) throw new Error(usage());
+  const prefer = ConflictPreferenceSchema.safeParse(parsed.values.prefer);
+  if (!prefer.success) throw new Error("resources resolve requires --prefer code|doc");
+  return {
+    id: parsed.positionals[0],
+    prefer: prefer.data,
+    codeRoot: typeof parsed.values["code-root"] === "string" ? parsed.values["code-root"] : undefined,
+  };
+}
+
+function resolveConflict(root: string, args: string[], deps: ResourcesDeps): string {
+  const options = parseResolveArgs(args);
+  const codeRoot = resolveCodeRoot(root, options.codeRoot);
+  const index = buildCodeIndex(codeRoot);
+  const cards = getAll(root);
+  const card = cards.find((candidate) => candidate.id === options.id);
+  if (!card) throw new Error(`resource not found: ${options.id}`);
+  const conflict = conflictForCard(root, card, index, codeRoot);
+  if (!conflict) return `resource has no conflict: ${options.id}`;
+  const resolvedAt = (deps.now ?? new Date()).toISOString();
+  appendResolution(root, { id: options.id, prefer: options.prefer, fingerprint: conflict.fingerprint, resolvedAt });
+  if (options.prefer === "code") {
+    const next = ResourceCardSchema.parse(applyCodeSide(card, conflict));
+    if (JSON.stringify(card) !== JSON.stringify(next)) {
+      const nextCards = cards.map((candidate) => (candidate.id === card.id ? next : candidate));
+      writeAll(root, nextCards);
+      renderOkfBundle(root, nextCards);
+    }
+  }
+  appendJournal(root, { phase: 0, event: "resource-conflict-resolved", status: options.prefer, detail: `${options.id} ${conflict.kinds.join(",")}` });
+  return `resource conflict resolved: ${options.id} --prefer ${options.prefer}`;
 }
 
 function parseOrganiseArgs(args: string[]): { dir: string; dryRun: boolean; deleteDuplicates: boolean; category?: string } {
@@ -710,6 +771,10 @@ export async function runResources(root: string, args: string[], deps: Resources
     case "doctor":
       if (rest.length !== 0) throw new Error(usage());
       return renderResourceDoctor(root);
+    case "conflicts":
+      return conflictsResources(root, rest);
+    case "resolve":
+      return resolveConflict(root, rest, deps);
     case "capture":
       return runCapture(root, rest, deps);
     default:
@@ -719,7 +784,7 @@ export async function runResources(root: string, args: string[], deps: Resources
 
 export function isResourcesMutation(args: string[]): boolean {
   const [verb, ...rest] = args;
-  if (verb === "add" || verb === "ground" || verb === "link" || verb === "rm" || verb === "index") return true;
+  if (verb === "add" || verb === "ground" || verb === "link" || verb === "rm" || verb === "index" || verb === "resolve") return true;
   if (verb === "enrich") {
     try {
       return !parseEnrichArgs(rest).dryRun;
